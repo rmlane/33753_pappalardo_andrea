@@ -1,0 +1,540 @@
+---
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+output: word_document
+title: "SOW 3 Analysis: Longitudinal CPS Data"
+params:
+  version: "2026-02-18"
+  project_dir: 'a11_sow3_longitudinal' # relative to project root
+  raw_data_cps:
+    value:
+      file: "UIC Asthma Status Data Albuterol SoW Shell_07252025.xlsx"
+      sheet: "SY22, 23, 24 and 25 Asthma Stat"
+      box_id: '1938297974039'
+  raw_data_schools_metadata:
+    value: 
+      file: "CPS Schools CCAs Regions.xlsx"
+      sheet: NULL
+      box_id: '2071252778107'
+  raw_data_utilization:
+    value:
+      file: "CPS 2023-2025 utilization recode.xlsx"
+      sheet: "Sheet1"
+      box_id: '2017350498669'
+  raw_data_waves: # added 2026-01-21
+    value:
+      file: "CPS Ramp Up School List_MostUpdated.xlsx"
+      sheet: "Sheet1"
+      box_id: "2109640911794"
+  force_preproc: FALSE
+  analytic_files:
+    value:
+      school_ids: "cps_ids.rds"
+      student_counts: "student_counts.rds"
+      school_chars: "school_chars.rds"
+      school_year_dates: "school_year_dates.rds"
+      inhaler_events: "inhaler_use_analytic.rds"
+      inhaler_event_counts: "inhaler_use_counts.rds"
+      school_counts_annual: "school_chars_annual.rds"
+knit: |
+  (function(input, ...) {
+      rmarkdown::render(
+        input, 
+        output_format = rmarkdown::word_document(), 
+        output_file   = paste0("33753_cps_sow_3_gee", Sys.Date(), ".docx"),
+        output_dir    = file.path(dirname(input), "output"),
+        envir         = globalenv()
+      )
+  })
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE)
+```
+
+```{r}
+# load libraries
+library(tidyverse)
+library(arsenal)
+library(geepack)
+library(emmeans)
+```
+
+```{r}
+## Set universal meta values
+options(knitr.kable.NA = '')
+thm <- theme_set(theme_bw())
+```
+
+```{r}
+# functions to simplify reading/writing relative paths
+find_dated_code <- function(
+    f_name,
+    f_dir = here::here(params$project_dir, params$version, "R"),
+    ext   = ".R"
+    ) {
+  f_name <- tools::file_path_sans_ext(f_name)
+  file.path(f_dir, paste0(f_name, ext))
+}
+
+find_dated_output <- function(
+    f_name, 
+    f_dir = here::here(params$project_dir, params$version, "output"),
+    ext   = ".rds"
+    ) {
+  f_name <- tools::file_path_sans_ext(f_name)
+  file.path(f_dir, paste0(f_name, ext))
+}
+
+find_raw_data <- function(
+    f_name,
+    f_dir  = here::here(params$project_dir, "data-raw"),
+    ...
+    ) {
+  if(f_name == "all") {
+    f_name <- list.files(f_dir, ...)
+    }
+  file.path(f_dir, f_name)
+}
+
+find_analytic_data <- function(
+    f_name, 
+    f_dir = here::here(params$project_dir, params$version, "data"),
+    ext   = ".rds"
+    ) {
+  f_name <- tools::file_path_sans_ext(f_name)
+  file.path(f_dir, paste0(f_name, ext))
+}
+
+read_analytic <- function(
+    f_name,
+    f_dir = here::here(params$project_dir, params$version, "data"),
+    ext   = ".rds"
+    ) {
+  f_name <- find_analytic_data(f_name, f_dir = f_dir, ext = ext)
+  if(!file.exists(f_name)) {return(NULL)}
+  res <- read_rds(f_name)
+  res
+}
+```
+
+```{r}
+# create locations for output
+here::here(params$project_dir, params$version, c("data", "output")) |> 
+  walk(~{
+    if(!dir.exists(.x)) {dir.create(.x, recursive = TRUE)}
+    })
+```
+
+# Data Processing
+
+```{r}
+# if any analytic dataset doesn't exist, run preprocessing code
+if (
+  (any(!file.exists(find_analytic_data(params$analytic_files)))) |
+    (params$force_preproc)
+  ) {
+  source(find_dated_code("r01_preproc"))
+  }
+```
+
+- [x] Read data from Box. Raw files:
+
+```{r}
+params |> 
+  keep_at(~ grepl("raw_data", .x)) |> 
+  map_dfr(as.list, .id = "contents") |> 
+  knitr::kable()
+```
+
+
+
+```{r}
+# combine with school and utilization data
+t3_df_list_mod <- read_rds(find_dated_output("gee_mod_data_list.rds"))
+```
+
+
+```{r}
+# check counts by race:
+t3_df_list_mod |> 
+  map(~{
+    .x |> 
+      reframe(
+        level = c("yes", "no"),
+        value = c(sum(n_y_yes),sum(n_y_no)),
+        .by = c("data_schoolyear", "student_race")
+      ) |> 
+      pivot_wider(
+        names_from = data_schoolyear
+      ) |> 
+      arrange(level, desc(`2021-2022`))
+  })
+```
+
+
+```{r}
+# check counts by gender
+t3_df_list_mod |> 
+  map(~{
+    .x |> 
+      reframe(
+        level = c("yes", "no"),
+        value = c(sum(n_y_yes),sum(n_y_no)),
+        .by = c("data_schoolyear", "student_gender")
+      ) |> 
+      pivot_wider(
+        names_from = data_schoolyear
+      ) |> 
+      arrange(level, desc(`2021-2022`))
+  })
+```
+
+
+```{r}
+if(!file.exists(find_dated_output("gee_mods_select.rds"))) {
+  list(
+  asthma = geepack::geeglm(
+  cbind(n_y_yes, n_y_no) ~
+    data_schoolyear*(student_gender + student_race) + 
+          active_months + any_events_cum + wave + grade_level + region_3grp,
+  family = binomial(link = "logit"),
+  data   = droplevels(na.omit(t3_df_list_mod[["asthma"]])),
+  id     = factor(school_id),
+  waves  = data_schoolyear_seq,
+  corstr = "independence"
+  ),
+  
+  x504 = geepack::geeglm(
+  cbind(n_y_yes, n_y_no) ~
+    data_schoolyear*(asthma_status_lab + student_gender + student_race) + 
+          active_months + any_events_cum + wave + grade_level + region_3grp,
+  family = binomial(link = "logit"),
+  data   = droplevels(na.omit(t3_df_list_mod[["x504"]])),
+  id     = factor(school_id),
+  waves  = data_schoolyear_seq,
+  corstr = "independence"
+  ),
+  iep = geepack::geeglm(
+  cbind(n_y_yes, n_y_no) ~
+    data_schoolyear*(asthma_status_lab + student_gender + student_race) + 
+          active_months + any_events_cum + wave + grade_level + region_3grp,
+  family = binomial(link = "logit"),
+  data   = droplevels(na.omit(t3_df_list_mod[["iep"]])),
+  id     = factor(school_id),
+  waves  = data_schoolyear_seq,
+  corstr = "independence"
+  ),
+  attendance = geepack::geeglm(
+  cbind(n_y_yes, n_y_no) ~
+    data_schoolyear*(asthma_status_lab + student_gender + student_race) + 
+          active_months + any_events_cum + wave + grade_level + region_3grp,
+  family = binomial(link = "logit"),
+  data   = droplevels(na.omit(t3_df_list_mod[["attendance"]])),
+  id     = factor(school_id),
+  waves  = data_schoolyear_seq,
+  corstr = "independence"
+  )
+) |> 
+    write_rds(find_dated_output("gee_mods_select.rds"))
+}
+
+geemods <- read_rds(find_dated_output("gee_mods_select.rds"))
+```
+
+
+Model each outcome probability by school year, race, gender, 
+active_months, wave, grade_level, utilization
+
+```{r}
+get_res <- function(mod, asthma_pred = TRUE) {
+  
+  emm <- list(
+    gender = list(
+      emm = emmeans::emmeans(
+        mod, ~ student_gender*data_schoolyear,
+        type = "response", weights = "proportional"
+      ),
+      c_levels = emmeans::contrast(emmeans::emmeans(
+        mod, ~ student_gender | data_schoolyear,
+        type = "response", weights = "proportional"
+        ), "pairwise", infer = TRUE),
+      c_levels_del = emmeans::contrast(emmeans::emmeans(
+        mod, ~ student_gender | data_schoolyear,
+        type = "response", weights = "proportional"
+        ), "del.eff", infer = TRUE),
+      c_years_bl = emmeans::contrast(emmeans::emmeans(
+        mod, ~ data_schoolyear | student_gender,
+        type = "response", weights = "proportional"
+      ), "trt.vs.ctrl", infer = TRUE),
+      
+      c_years_consec = emmeans::contrast(emmeans::emmeans(
+        mod, ~ data_schoolyear | student_gender,
+        type = "response", weights = "proportional"
+      ), "consec", infer = TRUE)
+      ),
+    
+        
+    race = list(
+      emm = emmeans::emmeans(
+        mod, ~ student_race*data_schoolyear,
+        type = "response", weights = "proportional"
+      ),
+      c_levels = emmeans::contrast(emmeans::emmeans(
+        mod, ~ student_race | data_schoolyear,
+        type = "response", weights = "proportional"
+        ), "pairwise", infer = TRUE),
+      c_levels_del = emmeans::contrast(emmeans::emmeans(
+        mod, ~ student_race | data_schoolyear,
+        type = "response", weights = "proportional"
+        ), "del.eff", infer = TRUE),
+      c_years_bl = emmeans::contrast(emmeans::emmeans(
+        mod, ~ data_schoolyear | student_race,
+        type = "response", weights = "proportional"
+      ), "trt.vs.ctrl", infer = TRUE),
+      
+      c_years_consec = emmeans::contrast(emmeans::emmeans(
+        mod, ~ data_schoolyear | student_race,
+        type = "response", weights = "proportional"
+      ), "consec", infer = TRUE)
+      )
+  )
+  
+  if(asthma_pred) {
+     emm$asthma <- list(
+      emm = emmeans::emmeans(
+        mod, ~ asthma_status_lab*data_schoolyear,
+        type = "response", weights = "proportional"
+      ),
+      c_levels = emmeans::contrast(emmeans::emmeans(
+        mod, ~ asthma_status_lab | data_schoolyear,
+        type = "response", weights = "proportional"
+        ), "pairwise", infer = TRUE),
+      
+      c_years_bl = emmeans::contrast(emmeans::emmeans(
+        mod, ~ data_schoolyear | asthma_status_lab,
+        type = "response", weights = "proportional"
+      ), "trt.vs.ctrl", infer = TRUE),
+      
+      c_years_consec = emmeans::contrast(emmeans::emmeans(
+        mod, ~ data_schoolyear | asthma_status_lab,
+        type = "response", weights = "proportional"
+      ), "consec", infer = TRUE)
+      )
+  }
+  
+  
+  
+  emm
+  
+}
+
+if(!file.exists(find_dated_output("gee_mods_emm.rds"))) {
+  gee_ests <- map(geemods[2:4], get_res)
+  gee_ests[["asthma"]] <- get_res(geemods[["asthma"]], FALSE)
+  write_rds(gee_ests, find_dated_output("gee_mods_emm.rds"))
+}
+
+gee_ests <- read_rds(find_dated_output("gee_mods_emm.rds"))
+
+```
+
+
+# Asthma
+
+```{r}
+# gee_ests$asthma$gender
+```
+
+```{r}
+gee_ests$asthma$gender$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 0.2)) +
+  labs(x = "School-Year End", title = "Asthma Probability by Year")
+```
+
+```{r}
+# gee_ests$asthma$race
+```
+
+```{r}
+gee_ests$asthma$race$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 0.1)) +
+  labs(x = "School-Year End", title = "Asthma Probability by Year")
+```
+
+
+
+
+
+
+
+# 504
+
+```{r}
+# gee_ests$x504$asthma
+```
+
+```{r}
+gee_ests$x504$asthma$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 1)) +
+  labs(x = "School-Year End", title = "504 Probability by Year")
+```
+
+```{r}
+# gee_ests$x504$gender
+```
+
+```{r}
+gee_ests$x504$gender$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 1)) +
+  labs(x = "School-Year End", title = "504 Probability by Year")
+```
+
+```{r}
+# gee_ests$x504$race
+```
+
+```{r}
+gee_ests$x504$race$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 1)) +
+  labs(x = "School-Year End", title = "504 Probability by Year")
+```
+
+
+
+# IEP
+
+```{r}
+# gee_ests$iep$asthma
+```
+
+```{r}
+gee_ests$iep$asthma$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 1)) +
+  labs(x = "School-Year End", title = "IEP Probability by Year")
+```
+
+```{r}
+# gee_ests$iep$gender
+```
+
+```{r}
+gee_ests$iep$gender$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 1)) +
+  labs(x = "School-Year End", title = "IEP Probability by Year")
+```
+
+```{r}
+# gee_ests$iep$race
+```
+
+```{r}
+gee_ests$iep$race$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 1)) +
+  labs(x = "School-Year End", title = "iep Probability by Year")
+```
+
+
+
+
+
+# Attendance
+
+```{r}
+# gee_ests$attendance$asthma
+```
+
+```{r}
+gee_ests$attendance$asthma$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 1)) +
+  labs(x = "School-Year End", title = "Attendance Probability by Year")
+```
+
+```{r}
+# gee_ests$attendance$gender
+```
+
+```{r}
+gee_ests$attendance$gender$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 1)) +
+  labs(x = "School-Year End", title = "Attendance Probability by Year")
+```
+
+```{r}
+# gee_ests$attendance$race
+```
+
+```{r}
+gee_ests$attendance$race$emm |> 
+  data.frame() |> 
+  rename(level = 1) |> 
+  ggplot(aes(as.numeric(gsub(".*-", "", as.character(data_schoolyear))), 
+             prob, ymin = lower.CL, ymax = upper.CL, color = level)) +
+  geom_pointrange(position = position_dodge(width = 0.1))  +
+  geom_line(position = position_dodge(width = 0.1)) +
+  ylim(c(0, 1)) +
+  labs(x = "School-Year End", title = "attendance Probability by Year")
+```
+
+
+

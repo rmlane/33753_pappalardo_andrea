@@ -1,0 +1,10 @@
+.Rproj.user
+.Rproj.user*
+.Rhistory
+.RData
+.Ruserdata
+#temp files
+*~
+~*
+*/data
+*/data-raw

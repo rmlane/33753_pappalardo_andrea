@@ -1,0 +1,2166 @@
+---
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+output: word_document
+title: "SOW 3 Analysis: Longitudinal CPS Data"
+params:
+  version: "2026-02-18"
+  project_dir: 'a11_sow3_longitudinal' # relative to project root
+  raw_data_cps:
+    value:
+      file: "UIC Asthma Status Data Albuterol SoW Shell_07252025.xlsx"
+      sheet: "SY22, 23, 24 and 25 Asthma Stat"
+      box_id: '1938297974039'
+  raw_data_schools_metadata:
+    value: 
+      file: "CPS Schools CCAs Regions.xlsx"
+      sheet: NULL
+      box_id: '2071252778107'
+  raw_data_utilization:
+    value:
+      file: "CPS 2023-2025 utilization recode.xlsx"
+      sheet: "Sheet1"
+      box_id: '2017350498669'
+  raw_data_waves: # added 2026-01-21
+    value:
+      file: "CPS Ramp Up School List_MostUpdated.xlsx"
+      sheet: "Sheet1"
+      box_id: "2109640911794"
+  force_preproc: FALSE
+  analytic_files:
+    value:
+      school_ids: "cps_ids.rds"
+      student_counts: "student_counts.rds"
+      school_chars: "school_chars.rds"
+      school_year_dates: "school_year_dates.rds"
+      inhaler_events: "inhaler_use_analytic.rds"
+      inhaler_event_counts: "inhaler_use_counts.rds"
+      school_counts_annual: "school_chars_annual.rds"
+knit: |
+  (function(input, ...) {
+      rmarkdown::render(
+        input, 
+        output_format = rmarkdown::word_document(), 
+        output_file   = paste0("33753_cps_sow_3_", Sys.Date(), ".docx"),
+        output_dir    = file.path(dirname(input), "output"),
+        envir         = globalenv()
+      )
+  })
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, eval = TRUE)
+```
+
+```{r}
+# load libraries
+library(tidyverse)
+library(arsenal)
+```
+
+```{r}
+## Set universal meta values
+options(knitr.kable.NA = '')
+thm <- theme_set(theme_bw())
+```
+
+```{r}
+# functions to simplify reading/writing relative paths
+find_dated_code <- function(
+    f_name,
+    f_dir = here::here(params$project_dir, params$version, "R"),
+    ext   = ".R"
+    ) {
+  f_name <- tools::file_path_sans_ext(f_name)
+  file.path(f_dir, paste0(f_name, ext))
+}
+
+find_dated_output <- function(
+    f_name, 
+    f_dir = here::here(params$project_dir, params$version, "output"),
+    ext   = ".rds"
+    ) {
+  f_name <- tools::file_path_sans_ext(f_name)
+  file.path(f_dir, paste0(f_name, ext))
+}
+
+find_raw_data <- function(
+    f_name,
+    f_dir  = here::here(params$project_dir, "data-raw"),
+    ...
+    ) {
+  if(f_name == "all") {
+    f_name <- list.files(f_dir, ...)
+    }
+  file.path(f_dir, f_name)
+}
+
+find_analytic_data <- function(
+    f_name, 
+    f_dir = here::here(params$project_dir, params$version, "data"),
+    ext   = ".rds"
+    ) {
+  f_name <- tools::file_path_sans_ext(f_name)
+  file.path(f_dir, paste0(f_name, ext))
+}
+
+read_analytic <- function(
+    f_name,
+    f_dir = here::here(params$project_dir, params$version, "data"),
+    ext   = ".rds"
+    ) {
+  f_name <- find_analytic_data(f_name, f_dir = f_dir, ext = ext)
+  if(!file.exists(f_name)) {return(NULL)}
+  res <- read_rds(f_name)
+  res
+}
+```
+
+```{r}
+# create locations for output
+here::here(params$project_dir, params$version, c("data", "output")) |> 
+  walk(~{
+    if(!dir.exists(.x)) {dir.create(.x, recursive = TRUE)}
+    })
+```
+
+# Data Processing
+
+```{r}
+# if any analytic dataset doesn't exist, run preprocessing code
+if (
+  (any(!file.exists(find_analytic_data(params$analytic_files)))) |
+    (params$force_preproc)
+  ) {
+  source(find_dated_code("r01_preproc"))
+  }
+```
+
+- [x] Read data from Box. Raw files:
+
+```{r}
+params |> 
+  keep_at(~ grepl("raw_data", .x)) |> 
+  map_dfr(as.list, .id = "contents") |> 
+  knitr::kable()
+```
+
+- [x] Match school names to school IDs in each dataset
+* [x] incorporate updated implementation dates for schools (from Paige 2026-01-21)
+
+<!-- * [ ] incorporate fxn to update asof dates automatically -->
+
+
+* check data
+   * [ ] missing or NA values
+   * [ ] recodes
+
+# Descriptive
+
+* [ ] summarize school-level chars by school year:
+    * [ ] n schools
+    * [ ] wave
+    * [ ] grade level
+    * [ ] n students
+    * [ ] region (all groups)
+    * [ ] region (3 groups)
+    * [ ] % students in each race and ethnicity category
+    * [ ] % students in each gender category
+    * [ ] % students ESL
+    * [ ] % students FRM
+    * [ ] % students homeless
+    * [ ] average attendance
+    * [ ] % students asthma
+    * [ ] % students w food allergy
+    * [ ] % students w non-food allergy
+    * [ ] % students with 504
+    * [ ] % students with IEP
+
+```{r}
+
+```
+
+
+
+
+```{r}
+# load cleaned datasets
+# analytic_data <- params$analytic_files |> 
+#   map(read_analytic)
+```
+
+
+
+```{r}
+# extract utilization by school & year
+# use_counts <- use_df |> 
+  # summarise(
+  #   n_events_sy = n(), 
+  #   .by         = c(school_id, data_schoolyear)
+  # ) |> 
+  # right_join(
+  #   school_df |> 
+  #     distinct(school_id) |> 
+  #     merge(
+  #       data.frame(data_schoolyear = factor(c("2021-2022", "2022-2023", "2023-2024", 
+  #                                             "2024-2025", "2025-2026"))),
+  #       by  = NULL
+  #     ), by = c("school_id", "data_schoolyear")
+  #   ) |> 
+  # 
+  # mutate(n_events_sy = coalesce(n_events_sy, 0)) |> 
+  # arrange(school_id, data_schoolyear) |> 
+  # mutate(
+  #   n_events_cum   = cumsum(n_events_sy),
+  #   .by            = school_id
+  # ) |> 
+  # mutate(
+  #   any_events_sy  = factor(
+  #     n_events_sy > 0, 
+  #     levels = c(FALSE, TRUE), 
+  #     labels = c("0 Events", "1+ Events")
+  #     ),
+  #   any_events_cum = factor(
+  #     n_events_cum > 0, 
+  #     levels = c(FALSE, TRUE), 
+  #     labels = c("0 Events", "1+ Events")
+  #     )
+  # )
+```
+
+
+
+
+
+
+# Table 1: Demographics
+
+<!-- School-level student count, attendance, and percentages appear  -->
+<!-- non-normally distributed. Plan to summarise by non-parametric statistics. -->
+
+```{r}
+# t1a_df |> 
+#   ggplot(aes(value, color = data_schoolyear)) +
+#   geom_density() +
+#   theme(legend.position = "none") +
+#   facet_wrap(. ~ variable, scales = "free")
+```
+
+<!-- Within-school changes over time are more symmetrically distributed.  -->
+<!-- Several change values appear centered above zero, suggesting mean  -->
+<!-- increases in reported numbers over time.  -->
+
+```{r}
+# t1a_df |> 
+#   filter(data_schoolyear != baseline_schoolyear) |> 
+#   ggplot(aes(abs_change, color = data_schoolyear)) +
+#   geom_density() +
+#   theme(legend.position = "none") +
+#   geom_vline(xintercept = 0, linetype = "dashed") +
+#   facet_wrap(. ~ variable, scales = "free")
+```
+
+Calculate, summarize, and hypothesis-test changes in each variable from 
+baseline (2021-2022) to each subsequent year.
+
+
+```{r}
+# # count number of events (2023-2024 SY only)
+# school_time_invariant <- full_join(
+#   school_df |>
+#         distinct(school_id, grade_level, region, region_3grp, wave),
+#   use_counts |>
+#     pivot_wider(
+#     )
+#     filter(data_schoolyear == "2023-2024") |> 
+#     summarise(n_events = n(), .by = c(school_id)),
+#     by = c("school_id")
+# ) |> 
+#   mutate(
+#     n_schools   = 1,
+#     n_events    = coalesce(n_events, 0),
+#     any_events_2l = factor(n_events > 0, 
+#          levels = c(FALSE, TRUE),
+#          labels = c("0 Events",	"1+ Events")
+#          ),
+#     any_events_3l = factor(
+#       case_when(
+#         wave == "Fall 2024" ~ "NA - Phase 4",
+#         n_events == 0 ~ "0 Events",
+#         n_events > 0 ~ "1+ Events"
+#       )
+#     )
+#   )
+```
+
+
+```{r}
+
+```
+
+
+Build summary tables:
+
+```{r}
+# school-level (time-invariant) chars
+t1a <- tableby(
+  data_schoolyear ~ wave + grade_level + n_students + region + region_3grp,
+  data = read_analytic(params$analytic_files$school_counts_annual),
+  test = FALSE,
+  total = FALSE,
+  control = tableby.control(
+    numeric.stats = c("medianq1q3", "range")
+  )
+  ) |> 
+  summary(text = TRUE) |> 
+  as.data.frame() 
+
+
+# School-level student counts (annual):
+(t1b <- tableby(
+    data_schoolyear ~ 
+      p_student_race_american_indian + 
+      p_student_race_asian_hawaiian_pacific_islander + 
+      p_student_race_black_non_hispanic + 
+      p_student_race_hispanic + 
+      p_student_race_middle_eastern_or_north_african +
+      p_student_race_multi + 
+      p_student_race_white_non_hispanic + 
+      p_student_race_missing +
+      
+      p_student_gender_female + 
+      p_student_gender_male + 
+      p_student_gender_non_binary +
+      p_student_gender_missing + 
+      
+      p_esl_yes + p_frm_yes + p_homelessness_yes +
+      
+      attendance + p_asthma_yes + p_food_allergy_yes + p_non_food_allergy_yes +
+      
+      p_student_504_yes + p_iep_yes, # + any_events_3l,
+  data = read_analytic(params$analytic_files$school_counts_annual),
+  test = FALSE,
+  total = FALSE,
+  control = tableby.control(
+    numeric.stats = c("medianq1q3", "range")
+  )
+  ) |> 
+  summary(text = TRUE) |> 
+  as.data.frame() )
+```
+
+
+
+# Bivariate Tests
+
+  * for each variable, calculate year-vs-baseline hypothesis tests (paired t-tests)
+    
+<!-- * data review, processing, recoding -->
+<!-- * Check cell counts for all groups (small groups, e.g. NB) -->
+
+
+    
+
+```{r}
+# t-tests for change from baseline to each subsequent year in student counts
+# (H0: mean within-school change = 0; Ha: change != 0) 
+read_analytic(params$analytic_files$school_counts_annual) |> 
+  select(school_id, data_schoolyear, attendance, starts_with("p_")) |> 
+  select(-any_of(c(
+    "p_students",
+    "p_student_race_middle_eastern_or_north_african"
+    ))) |> 
+  pivot_longer(c("attendance", starts_with("p")), names_to = "var") |> 
+  pivot_wider(
+    names_from = "data_schoolyear"
+  ) |> 
+  
+  mutate(
+    across(
+      all_of(c("2022-2023", "2023-2024", "2024-2025")),
+      ~ .x - `2021-2022`
+      )
+    ) |> 
+  
+  pivot_longer(
+    c("2022-2023", "2023-2024", "2024-2025"),
+    names_to = "data_schoolyear",
+    values_to = "change_from_bl"
+    ) |> 
+  filter(!is.na(change_from_bl)) |> 
+  
+  summarise(
+    h0        = "H0: No mean within-school change from 2021-2022 baseline",
+    h1        = "H1: Mean within-school change from 2021-2022 baseline != 0",
+    n_schools = n(),
+    tt        = broom::tidy(t.test(change_from_bl)),
+    .by       = c(var, data_schoolyear)
+  ) |> 
+  unnest(tt) |> 
+  mutate(p.value.adj = p.adjust(p.value, method = "holm"),
+         .by = var)
+```
+
+```{r}
+# combine tables and write to file
+list(t1a, t1b) |> 
+  map_dfr(rename, x = 1) |> 
+    
+  openxlsx::write.xlsx(
+    here::here("a11_sow3_longitudinal", "output", Sys.Date(), "t1_characteristics.xlsx"),
+    asTable = TRUE
+  )
+
+```
+
+
+
+## Table 2: Utilization, 2023-2024 School Year
+
+
+```{r}
+(t2 <- c(
+  list(levels(read_analytic(params$analytic_files$school_counts_annual)$any_events_3l)), 
+  combn(levels(read_analytic(params$analytic_files$school_counts_annual)$any_events_3l), 2, simplify = FALSE)
+  ) |> 
+  (\(.) set_names(., map(., paste, collapse = " vs. ")))() |> 
+  map(~{
+    tableby(
+  any_events_3l ~ notest(wave) + grade_level + n_students + region + region_3grp + p_student_race_american_indian + 
+      p_student_race_asian_hawaiian_pacific_islander + 
+      p_student_race_black_non_hispanic + 
+      p_student_race_hispanic + 
+      p_student_race_middle_eastern_or_north_african +
+      p_student_race_multi + 
+      p_student_race_white_non_hispanic + 
+      p_student_race_missing +
+      
+      p_student_gender_female + 
+      p_student_gender_male + 
+      p_student_gender_non_binary +
+      p_student_gender_missing + 
+      
+      p_esl_yes + p_frm_yes + p_homelessness_yes +
+      
+      attendance + p_asthma_yes + p_food_allergy_yes + p_non_food_allergy_yes +
+      
+      p_student_504_yes + p_iep_yes,
+  data = read_analytic(params$analytic_files$school_counts_annual) |> 
+    filter(data_schoolyear == "2023-2024") |> 
+    filter(any_events_3l %in% .x),
+  control = tableby.control(
+    numeric.stats = c("medianq1q3", "range")
+  )
+  
+) |> 
+  
+  summary(text = TRUE) |> 
+  as.data.frame()
+    
+  }))
+```
+
+
+```{r}
+(t2[[1]] |> 
+  rename(x = 1) |> 
+  select(-matches("p.value")) |> 
+  
+  full_join(
+    t2 |> 
+    map_dfr(
+      ~ .x |>
+        janitor::clean_names() |>
+        select(x, p_value) |>
+        filter(str_length(p_value) > 0),
+      .id =  "comparison"
+      ) |> 
+    
+    pivot_wider(
+      names_from = comparison,
+      names_prefix = "pval ",
+      values_from = p_value
+    ) ,
+    
+    by = "x"
+    
+  )) |> 
+  
+  openxlsx::write.xlsx(
+    here::here("a11_sow3_longitudinal", "output", Sys.Date(), "t2_utilization.xlsx"),
+    asTable = TRUE
+  )
+
+```
+
+
+
+
+```{r}
+# Table 2b: Utilization Detail
+t2_df <- right_join(
+    read_analytic(params$analytic_files$school_chars),
+    read_analytic(params$analytic_files$inhaler_events),
+    by = "school_id"
+    )
+```
+
+
+```{r}
+tableby(
+  data_schoolyear ~
+    # recipient
+    rcp_sex + rcp_race + rcp_eth + rcp_age +
+    rcp_role + sym_new + rcp_dx_pre + inh_use_prev +
+
+    # incident
+    season + why_given +
+
+    # school chars
+    wave + grade_level +
+
+    # disposition
+    hypo_disp_rcd + true_disp_rcd,
+  
+  test = FALSE,
+  data = t2_df |> filter(data_schoolyear %in% c("2023-2024", "2024-2025")) |> droplevels(),
+  total = FALSE
+  ) |>
+  summary(text = TRUE, labelTranslations = list(rcp_age = "Age")) |>
+  as.data.frame()
+  # write_output("Table2_Utilization")
+```
+
+
+## Attendance, Asthma, IEPs, 504s
+
+
+# Longitudinal Models
+
+* Check for significant interactions:
+    * time by gender (504 outcome)
+    * time by gender (IEP outcome)
+    * time by gender (asthma outcome)
+    * time by race (504 outcome)
+    * time by race (IEP outcome)
+    * time by race (asthma outcome)
+
+```{r}
+read_analytic(params$analytic_files$school_counts_annual)
+```
+
+
+```{r}
+t3_df <- read_analytic(params$analytic_files$student_counts)
+
+gender_probs <- t3_df |> 
+  summarise(
+    n   = sum(student_count),
+    .by = student_gender
+    ) |> 
+  na.omit() |> 
+  mutate(p = n / sum(n), .keep = "unused")
+
+t3_df_imp <- merge(
+  gender_probs,
+  t3_df |> 
+    filter(is.na(student_gender)) |> 
+    select(-student_gender),
+  by = NULL
+  ) |> 
+  mutate(across(
+    c(matches("_no$"), matches("_yes$"), 
+      matches("_present$"), matches("_absent$")),
+    ~ .x*p
+    )) |> 
+  
+  select(-p) |> 
+  rbind(
+    t3_df |> 
+      filter(!is.na(student_gender))
+    ) |> 
+  
+    mutate(
+      student_gender = fct_na_value_to_level(
+        student_gender, "Unknown"
+        ),
+      student_race = fct_collapse(fct_na_value_to_level(
+        student_race, "Unknown"
+        ),
+        "Multi, Other, Unknown" = c("Multi", "Unknown", "Middle Eastern or North African")
+      )
+    ) |> 
+    droplevels()
+```
+
+
+```{r}
+# nrow(t3_df)
+# nrow(t3_df_imp)
+# 
+# cbind(
+#   colSums(t3_df |> select(where(is.numeric))),
+#   colSums(t3_df_imp |> select(where(is.numeric)))
+# )
+```
+
+
+```{r}
+# create dataset with asthma counts by race, gender, school, schoolyear
+t3_df_list <- list(
+  asthma = t3_df_imp |> 
+    arrange(school_id, data_schoolyear) |> 
+    summarise(
+      y_var   = "asthma",
+      n_y_yes = round(sum(asthma_count_yes, na.rm = TRUE)),
+      n_y_no  = round(sum(asthma_count_no, na.rm = TRUE)),
+      .by     = c(school_id, data_schoolyear, data_date, student_gender, student_race)
+    )
+)
+
+# create dataset with iep counts by asthma, race, gender, school, schoolyear
+t3_df_list[["iep"]] <- t3_df_imp |> 
+    arrange(school_id, data_schoolyear) |> 
+    summarise(
+      y_var = "iep",
+      n_y_yes = round(sum(iep_count_yes, na.rm = TRUE)),
+      n_y_no  = round(sum(iep_count_no, na.rm = TRUE)),
+      .by   = c(school_id, data_schoolyear,  data_date, asthma_status_lab, student_gender, student_race)
+    )
+
+# create dataset with 504 counts by asthma, race, gender, school, schoolyear
+t3_df_list[["x504"]] <- t3_df_imp |> 
+    arrange(school_id, data_schoolyear) |> 
+    summarise(
+      y_var = "x504",
+      n_y_yes = round(sum(student_504_count_yes, na.rm = TRUE)),
+      n_y_no  = round(sum(student_504_count_no, na.rm = TRUE)),
+      .by   = c(school_id, data_schoolyear, data_date, asthma_status_lab, student_gender, student_race)
+    ) 
+
+# create dataset with attendance counts by asthma, race, gender, school, schoolyear
+t3_df_list[["attendance"]] <- t3_df_imp |> 
+    arrange(school_id, data_schoolyear) |> 
+    summarise(
+      y_var = "days_present",
+      n_y_yes = round(sum(student_days_present, na.rm = TRUE)),
+      n_y_no  = round(sum(student_days_absent, na.rm = TRUE)),
+      .by   = c(school_id, data_schoolyear, data_date, asthma_status_lab, student_gender, student_race)
+    )
+```
+
+
+
+```{r}
+# combine with school and utilization data
+t3_df_list_mod <- map(t3_df_list, ~{
+  full_join(
+    read_analytic(params$analytic_files$school_chars), .x, by = c("school_id")) |> 
+  left_join(
+    read_analytic(params$analytic_files$inhaler_event_counts), 
+    by = c("school_id",  "data_schoolyear")) |>
+    arrange(school_id, data_date) |> 
+    mutate(
+      
+      data_schoolyear = fct_inorder(data_schoolyear),
+      data_schoolyear_seq = as.numeric(data_schoolyear),
+      data_schoolyear_num = data_schoolyear_seq + 2021,
+     active_months = round(as.numeric(
+       difftime(data_date, impl_date, units = "days")
+       )/(30.44)),
+     active_months = case_when(
+       active_months > 0 ~ active_months,
+       .default = 0
+       ),
+     .before = 1
+     ) |> 
+    filter(!is.na(y_var)) |> 
+    mutate(across(where(is.character), factor))  |> 
+    
+    filter(!(n_y_yes + n_y_no) == 0)
+  })
+```
+
+
+
+```{r}
+# check counts by race:
+t3_df_list_mod |> 
+  map(~{
+    .x |> 
+      reframe(
+        level = c("yes", "no"),
+        value = c(sum(n_y_yes),sum(n_y_no)),
+        .by = c("data_schoolyear", "student_race")
+      ) |> 
+      pivot_wider(
+        names_from = data_schoolyear
+      ) |> 
+      arrange(level, desc(`2021-2022`))
+  })
+```
+
+
+```{r}
+# check counts by gender
+t3_df_list_mod |> 
+  map(~{
+    .x |> 
+      reframe(
+        level = c("yes", "no"),
+        value = c(sum(n_y_yes),sum(n_y_no)),
+        .by = c("data_schoolyear", "student_gender")
+      ) |> 
+      pivot_wider(
+        names_from = data_schoolyear
+      ) |> 
+      arrange(level, desc(`2021-2022`))
+  })
+```
+
+
+```{r}
+write_rds(
+  t3_df_list_mod,
+  find_dated_output("gee_mod_data_list.rds")
+)
+```
+
+
+Model each outcome probability by school year, race, gender, 
+active_months, wave, grade_level, utilization
+
+Counts
+
+
+
+```{r}
+# map2(t3_mod_list, t3_df_list_mod, function(m, d) {
+#     lmtest::lrtest(
+#       update(m, data = d),
+#       update(m, . ~ . + data_schoolyear:student_race, data = d)
+#     )
+#   })
+# lmtest::lrtest(t3_mod_list[[1]])
+
+```
+
+
+<!-- Asthma:  -->
+
+```{r}
+f_list <- c(
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear*(asthma_status_lab + student_race + student_gender) +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp,
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear*(student_race + student_gender) + asthma_status_lab +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp,
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear*(asthma_status_lab + student_race) + student_gender +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp,
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear*(asthma_status_lab + student_gender) + student_race +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp,
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear*(asthma_status_lab) + student_gender + student_race +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp,
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear*(student_gender) + asthma_status_lab + student_race +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp,
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear*(student_race) + asthma_status_lab + student_gender +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp,
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear + student_race + asthma_status_lab + student_gender +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp
+)
+
+
+f_list_2 <- c(
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear*(student_race + student_gender) +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp,
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear*(student_gender) + student_race +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp,
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear*(student_race) + student_gender +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp,
+   cbind(n_y_yes, n_y_no) ~
+     data_schoolyear + student_race + student_gender +
+      active_months + any_events_cum +
+      wave + grade_level + region_3grp
+)
+```
+
+
+```{r}
+if(!file.exists(find_dated_output("gee_mod_search.rds"))) {
+  c(
+    rlist::list.expand(
+      d = c("iep", "x504", "attendance"), 
+      f = f_list
+      ),
+    rlist::list.expand(
+      d = c("asthma"), 
+      f = f_list_2
+      )
+    ) |> 
+    map(~{
+      eval(bquote(
+        geepack::geeglm(
+          .(.x$f),
+          family = binomial(link = "logit"),
+          data   = droplevels(na.omit(t3_df_list_mod[[.(.x$d)]])),
+          id     = factor(school_id),
+          waves  = data_schoolyear_seq,
+          corstr = "independence"
+          )
+      ))
+      }) |> 
+  
+  write_rds(find_dated_output("gee_mod_search.rds"))
+}
+
+t3_mod_search <- read_rds(find_dated_output("gee_mod_search.rds"))
+```
+
+```{r}
+if(!file.exists(find_dated_output("gee_mod_search_fitstats.rds"))) {
+  t3_mod_search_fitstats <- map_dfr(t3_mod_search, ~{
+    data.frame(
+      call = paste(as.character(.x$call), collapse = "; "),
+      data.frame(as.list(geepack::QIC(.x)))
+    )
+  })
+  write_rds(
+    t3_mod_search_fitstats,
+    find_dated_output("gee_mod_search_fitstats.rds")
+  )
+}
+
+t3_mod_search_fitstats <- read_rds(find_dated_output("gee_mod_search_fitstats.rds"))
+```
+
+
+```{r}
+# cbind(
+#   c(
+#     rlist::list.expand(
+#       d = c("iep", "x504", "attendance"), 
+#       f = f_list
+#       ),
+#     rlist::list.expand(
+#       d = c("asthma"), 
+#       f = f_list_2
+#       )
+#     ) |> 
+#   map_dfr(~{data.frame(d = .x$d, f = as.character(.x$f)[3])}),
+#   
+#   t3_mod_search_fitstats
+# ) |>
+#   mutate(
+#     intx = gsub(".*\\(([^\\)]+)\\).*", "\\1", f),
+#     intx = case_when(grepl("schoolyear", intx) ~ "(none)", .default = intx)
+#     ) |> 
+#   group_split(d) |> 
+#   map(~{
+#     .x |> 
+#       ggplot(aes(intx, QICu)) +
+#     geom_point() +
+#       coord_flip()
+#     
+#   })
+```
+
+```{r}
+cbind(
+  c(
+    rlist::list.expand(
+      d = c("iep", "x504", "attendance"), 
+      f = f_list
+      ),
+    rlist::list.expand(
+      d = c("asthma"), 
+      f = f_list_2
+      )
+    ) |> 
+  map_dfr(~{data.frame(d = .x$d, f = as.character(.x$f)[3])}),
+  t3_mod_search_fitstats
+  ) |> 
+  filter((QICu - min(QICu) <= 6), .by = d) |> 
+  arrange(d, QICu)
+```
+
+
+
+
+```{r}
+# if(!file.exists(find_dated_output("gee_mod_select.rds"))) {
+#   
+#   c(
+#     rlist::list.expand(
+#         d = c("iep", "x504", "attendance"), 
+#         f = cbind(n_y_yes, n_y_no) ~ 
+#           data_schoolyear * (asthma_status_lab) + student_gender + student_race + 
+#           active_months + any_events_cum + wave + grade_level + region_3grp
+#         ),
+#       rlist::list.expand(
+#         d = c("asthma"), 
+#         f = cbind(n_y_yes, n_y_no) ~ 
+#           data_schoolyear + student_gender + student_race + 
+#           active_months + any_events_cum + wave + grade_level + region_3grp
+#         )
+#       ) |> 
+#       map(~{
+#         eval(bquote(
+#           geepack::geeglm(
+#             .(.x$f),
+#             family = binomial(link = "logit"),
+#             data   = droplevels(na.omit(t3_df_list_mod[[.(.x$d)]])),
+#             id     = factor(school_id),
+#             waves  = data_schoolyear_seq,
+#             corstr = "independence"
+#             )
+#         ))
+#         }) |> 
+#     
+#     write_rds(find_dated_output("gee_mod_select.rds"))
+# }
+# 
+# t3_mod_list <- read_rds(find_dated_output("gee_mod_select.rds"))
+```
+
+
+```{r}
+# rlist::list.expand(
+#   d = c("iep", "x504", "attendance"), 
+#   f = f_list
+#   ) |> 
+#   map(~{
+#     eval(bquote(
+#       geepack::geeglm(
+#         .(.x$f),
+#         family = binomial(link = "logit"),
+#         data   = droplevels(na.omit(t3_df_list_mod[[.(.x$d)]])),
+#         id     = factor(school_id),
+#         waves  = data_schoolyear_seq,
+#         corstr = "independence"
+#         )
+#     ))
+#     })
+```
+
+
+
+
+```{r}
+# broom::tidy(t3_mod_list[[1]])
+# 
+# emmeans::emmeans(
+#   t3_mod_list[[1]],
+#   ~ data_schoolyear | student_gender,
+#   type = "response"
+#   ) |>
+#   emmeans::contrast("trt.vs.ctrl")
+```
+
+
+```{r}
+broom::tidy(geepack::geeglm(
+  cbind(n_y_yes, n_y_no) ~
+    data_schoolyear*(asthma_status_lab + student_gender + student_race) + 
+          active_months + any_events_cum + wave + grade_level + region_3grp,
+  family = binomial(link = "logit"),
+  data   = droplevels(na.omit(t3_df_list_mod[["x504"]])),
+  id     = factor(school_id),
+  waves  = data_schoolyear_seq,
+  corstr = "independence"
+  ))
+```
+
+```{r}
+geemod_x504 <- geepack::geeglm(
+  cbind(n_y_yes, n_y_no) ~
+    data_schoolyear*(asthma_status_lab + student_gender + student_race) + 
+          active_months + any_events_cum + wave + grade_level + region_3grp,
+  family = binomial(link = "logit"),
+  data   = droplevels(na.omit(t3_df_list_mod[["x504"]])),
+  id     = factor(school_id),
+  waves  = data_schoolyear_seq,
+  corstr = "independence"
+  )
+```
+
+
+504, compare asthma status by year
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, revpairwise ~ asthma_status_lab | data_schoolyear,
+  type = "response"
+  )
+```
+
+504, compare year vs. baseline by asthma status
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, trt.vs.ctrl ~ data_schoolyear | asthma_status_lab,
+  type = "response"
+  )
+```
+
+504, compare year vs. previous by asthma status
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, consec ~ data_schoolyear | asthma_status_lab,
+  type = "response"
+  )
+```
+
+504, compare race/ethnicity status by year
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, revpairwise ~ student_race | data_schoolyear,
+  type = "response"
+  )
+```
+
+504, compare year vs baseline by asthma status
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, trt.vs.ctrl ~ data_schoolyear | student_race,
+  type = "response"
+  )
+```
+
+504, compare year vs previous by asthma status
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, consec ~ data_schoolyear | student_race,
+  type = "response"
+  )
+```
+
+
+
+504, compare asthma status by year
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, revpairwise ~ asthma_status_lab | data_schoolyear,
+  type = "response"
+  )
+```
+
+504, compare year vs. baseline by asthma status
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, trt.vs.ctrl ~ data_schoolyear | asthma_status_lab,
+  type = "response"
+  )
+```
+
+504, compare year vs. previous by asthma status
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, consec ~ data_schoolyear | asthma_status_lab,
+  type = "response"
+  )
+```
+
+504, compare race/ethnicity status by year
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, revpairwise ~ student_gender | data_schoolyear,
+  type = "response"
+  )
+```
+
+504, compare year vs baseline by asthma status
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, trt.vs.ctrl ~ data_schoolyear | student_gender,
+  type = "response"
+  )
+```
+
+504, compare year vs previous by asthma status
+
+```{r}
+emmeans::emmeans(
+  geemod_x504, consec ~ data_schoolyear | student_gender,
+  type = "response"
+  )
+```
+
+
+
+
+
+
+```{r}
+summary(geepack::geeglm(
+  cbind(n_y_yes, n_y_no) ~
+    asthma_status*(factor(data_schoolyear) + student_race + student_gender) +
+
+    active_months + n_events_cum + 
+    
+    wave + grade_level + region_3grp,
+  family = binomial(link = "logit"),
+  data   = na.omit(t3_df_list_mod[["asthma"]]),
+  id     = factor(school_id),
+  waves  = data_schoolyear_seq,
+  corstr = "independence"
+  ))
+```
+
+
+
+
+```{r}
+add_todo(paste(
+  "Consider addl interactions. Possible to collapse race and gender?",
+  "Currently rank defficient if including all student-level 2-way",
+  "interactions with year."
+  ))
+
+summary(t3a_mod <- geepack::geeglm(
+  cbind(student_days_present, student_days_absent) ~
+    asthma_status*(factor(data_schoolyear) + student_race + student_gender) +
+
+    active_months + wave + grade_level + region_3grp,
+  family = binomial(link = "logit"),
+  data   = na.omit(t3a_df),
+  id     = factor(school_id),
+  waves  = data_schoolyear,
+  corstr = "independence"
+  ))
+```
+
+
+```{r}
+t3a_est <- set_names(c("student_gender", "student_race")) |>
+  map(~{
+    emmeans::emmeans(
+      t3a_mod,
+      ~ data_schoolyear | asthma_status,
+      by = .x,
+      type = "response",
+      weights = "proportional"
+    )
+  }) |>
+  map_dfr(data.frame, .id = "byvar") |>
+  mutate(level = coalesce(student_gender, student_race),
+         .keep = "unused",
+         .after = byvar)
+
+t3a_or <- set_names(c("student_gender", "student_race")) |>
+  map(~{
+    emmeans::contrast(emmeans::emmeans(
+      t3a_mod,
+      ~ data_schoolyear | asthma_status,
+      by = .x,
+      weights = "proportional"
+    ), "trt.vs.ctrl", type = "response", infer = TRUE)
+  }) |>
+  map_dfr(data.frame, .id = "byvar") |>
+  mutate(level = coalesce(student_gender, student_race),
+         .keep = "unused",
+         .after = byvar)
+
+
+# -------------------------------------------------------------------------
+
+t3b_df <- cps_df |>
+  select(-student_count) |>
+  pivot_longer(
+    c("iep_count_yes", "iep_count_no"),
+    names_to = "iep_status",
+    values_to = "student_count"
+    ) |>
+  mutate(
+    student_days_expected = student_count*cps_base_days,
+    student_days_present = student_days_expected*(average_attendance/100),
+    student_days_absent  = student_days_expected - student_days_present,
+    .after               = average_attendance
+  ) |>
+  summarise(
+    n_students         = sum(student_count),
+    average_attendance = weighted.mean(average_attendance, student_count),
+    across(starts_with("student_days"), ~ round(sum(.x))),
+    .by = c(
+      # school level
+      school_id, wave, grade_level, region, region_2grp, region_3grp,
+      pilot, impl_year, impl_date, data_schoolyear, data_date, active_months,
+
+      # student level
+      iep_status, student_gender, student_race
+    )
+  ) |>
+
+  droplevels()
+
+summary(t3b_mod <- geepack::geeglm(
+  cbind(student_days_present, student_days_absent) ~
+    iep_status*(factor(data_schoolyear) + student_race + student_gender) +
+
+    active_months + wave + grade_level + region_3grp,
+  family = binomial(link = "logit"),
+  data   = na.omit(t3b_df),
+  id     = factor(school_id),
+  waves  = data_schoolyear,
+  corstr = "independence"
+  ) |>
+  write_data("t3b_mod_attd_iep"))
+
+
+
+t3b_est <- set_names(c("student_gender", "student_race")) |>
+  map(~{
+    emmeans::emmeans(
+      t3b_mod,
+      ~ data_schoolyear | iep_status,
+      by = .x,
+      type = "response",
+      weights = "proportional"
+    )
+  }) |>
+  map_dfr(data.frame, .id = "byvar") |>
+  mutate(level = coalesce(student_gender, student_race),
+         .keep = "unused",
+         .after = byvar)
+
+t3b_or <- set_names(c("student_gender", "student_race")) |>
+  map(~{
+    emmeans::contrast(emmeans::emmeans(
+      t3b_mod,
+      ~ data_schoolyear | iep_status,
+      by = .x,
+      weights = "proportional"
+    ), "trt.vs.ctrl", type = "response", infer = TRUE)
+  }) |>
+  map_dfr(data.frame, .id = "byvar") |>
+  mutate(level = coalesce(student_gender, student_race),
+         .keep = "unused",
+         .after = byvar)
+
+
+
+
+
+# -------------------------------------------------------------------------
+
+
+t3c_df <- cps_df |>
+  select(-student_count) |>
+  pivot_longer(
+    c("student_504_count_yes", "student_504_count_no"),
+    names_to = "x504_status",
+    values_to = "student_count"
+  ) |>
+  mutate(
+    student_days_expected = student_count*cps_base_days,
+    student_days_present = student_days_expected*(average_attendance/100),
+    student_days_absent  = student_days_expected - student_days_present,
+    .after               = average_attendance
+  ) |>
+  summarise(
+    n_students         = sum(student_count),
+    average_attendance = weighted.mean(average_attendance, student_count),
+    across(starts_with("student_days"), ~ round(sum(.x))),
+    .by = c(
+      # school level
+      school_id, wave, grade_level, region, region_2grp, region_3grp,
+      pilot, impl_year, impl_date, data_schoolyear, data_date, active_months,
+
+      # student level
+      x504_status, student_gender, student_race
+    )
+  ) |>
+
+  droplevels()
+
+summary(t3c_mod <- geepack::geeglm(
+  cbind(student_days_present, student_days_absent) ~
+    x504_status*(factor(data_schoolyear) + student_gender) +
+  student_race  +
+    active_months + wave + grade_level + region_3grp,
+  family = binomial(link = "logit"),
+  data   = na.omit(t3c_df),
+  id     = factor(school_id),
+  waves  = data_schoolyear,
+  corstr = "independence"
+  ) |>
+  write_data("t3c_mod_attd_504"))
+
+
+t3c_est <- set_names(c("student_gender", "student_race")) |>
+  map(~{
+    emmeans::emmeans(
+      t3c_mod,
+      ~ data_schoolyear | x504_status,
+      by = .x,
+      type = "response",
+      weights = "proportional"
+    )
+  }) |>
+  map_dfr(data.frame, .id = "byvar") |>
+  mutate(level = coalesce(student_gender, student_race),
+         .keep = "unused",
+         .after = byvar)
+
+t3c_or <- set_names(c("student_gender", "student_race")) |>
+  map(~{
+    emmeans::contrast(emmeans::emmeans(
+      t3c_mod,
+      ~ data_schoolyear | x504_status,
+      by = .x,
+      weights = "proportional"
+    ), "trt.vs.ctrl", type = "response", infer = TRUE)
+  }) |>
+  map_dfr(data.frame, .id = "byvar") |>
+  mutate(level = coalesce(student_gender, student_race),
+         .keep = "unused",
+         .after = byvar)
+
+# -------------------------------------------------------------------------
+
+
+
+
+
+t3_ests <- list(
+  t3a_est,
+  t3b_est,
+  t3c_est
+  ) |>
+
+  map_dfr(~{
+    pivot_longer(
+      .x,
+      matches("status"), values_to = "status", names_to = "strata")
+  }) |>
+  pivot_wider(
+    names_from = data_schoolyear,
+    values_from = c(prob, lower.CL, upper.CL),
+    id_cols = c(strata, status, byvar, level)
+  ) |>
+  relocate(
+    matches("2022"), matches("2023"), matches("2024"), matches("2025"),
+    .after = level
+    )
+
+
+
+t3_ors <- list(
+  t3a_or,
+  t3b_or,
+  t3c_or
+) |>
+  map_dfr(~{
+    pivot_longer(
+      .x,
+      matches("status"), values_to = "status", names_to = "strata")
+  }) |>
+  pivot_wider(
+    names_from = contrast,
+    values_from = c(odds.ratio, lower.CL, upper.CL, p.value),
+    id_cols = c(strata, status, byvar, level)
+  ) |>
+  relocate(
+    matches("2023"), matches("2024"), matches("2025"),
+    .after = level
+  )
+
+t3 <- full_join(
+  t3_ests,
+  t3_ors
+  ) |>
+  arrange(fct_inorder(strata), desc(status)) |>
+
+  write_output("Table3_Atttendance")
+
+# -------------------------------------------------------------------------
+
+
+
+
+# Table 4: Asthma
+t4a_df <- cps_df |>
+  summarise(
+    student_count = sum(student_count),
+    .by = c(
+      school_id,
+      data_schoolyear, impl_year, impl_date, active_months, #util,
+      student_race, student_gender, asthma_status_lab
+    )) |>
+  pivot_wider(
+    names_from = asthma_status_lab,
+    values_from = student_count,
+    id_cols = c(
+      school_id,
+      data_schoolyear, impl_year, impl_date, active_months, #util,
+      student_race, student_gender
+      ),
+    values_fill = 0
+    ) |>
+  mutate(
+    util   = fct_relevel(case_when(
+      school_id %in% inh_df$school_id ~ "1+",
+      .default = "None"
+    ), "None"),
+    student_race = fct_relevel(student_race, "Black Non-Hispanic"),
+    wave         = fct_relevel(as.character(impl_date), "2024-09-01")
+    ) |>
+  droplevels()
+
+
+summary(t4_mod <- geepack::geeglm(
+  cbind(`Asthma Dx`, `No Asthma Dx`) ~
+    student_race +
+    student_gender +
+    factor(data_schoolyear)*(
+
+    wave +
+    util),
+  family = binomial(link = "logit"),
+  data   = na.omit(t4a_df),
+  id     = factor(school_id),
+  waves  = data_schoolyear,
+  corstr = "independence"
+))
+
+
+t4a_est <- set_names(c("student_gender", "student_race", "util", "wave")) |>
+    map(~{
+      emmeans::emmeans(
+        t4_mod,
+        ~ data_schoolyear,
+        by = .x,
+        type = "response",
+        weights = "proportional"
+      )
+    }) |>
+    map_dfr(data.frame, .id = "byvar") |>
+    mutate(level = coalesce(student_gender, student_race, util, wave),
+           .keep = "unused",
+           .after = byvar)
+
+
+t4b_or <- set_names(c("student_gender", "student_race", "util", "wave")) |>
+    map(~{
+      emmeans::contrast(emmeans::emmeans(
+        t4_mod,
+        ~ data_schoolyear,
+        by = .x,
+        weights = "proportional"
+      ),
+      "trt.vs.ctrl",
+      type = "response",
+      infer = TRUE
+      )
+    }) |>
+    map_dfr(data.frame, .id = "byvar") |>
+    mutate(level = coalesce(student_gender, student_race, util, wave),
+           .keep = "unused",
+           .after = byvar)
+
+
+t4 <- full_join(
+
+
+  t4a_est |>
+    pivot_wider(
+      names_from = data_schoolyear,
+      values_from = c(prob, lower.CL, upper.CL),
+      id_cols = c(byvar, level)
+    ) |>
+    relocate(
+      matches("2022"), matches("2023"), matches("2024"), matches("2025"),
+      .after = level
+    ),
+
+
+  t4b_or |>
+    pivot_wider(
+      names_from = contrast,
+      values_from = c(odds.ratio, lower.CL, upper.CL, p.value),
+      id_cols = c(byvar, level)
+    ) |>
+    relocate(
+      matches("2023"), matches("2024"), matches("2025"),
+      .after = level
+    )
+
+) |>
+  write_output(("Table4_Asthma"))
+
+# Utilization data --------------------------------------------------------
+
+
+
+
+
+
+
+# # Read and modify data
+# if(!exists("inh_use_raw")) {
+#     inh_use_raw <- boxr::box_read_excel(
+#         file_id = get_global("raw_files")$utilization$box_id,
+#         sheet   = get_global("raw_files")$utilization$sheet
+#     )
+# }
+#
+# inh_use <- inh_use_raw |>
+#     filter(!is.na(ID)) |>
+#     drop_empty_cols() |>
+#     detect_factors(titlize = FALSE) |>
+#     rename_with(str_trim) |>
+#     set_colnames_as_labels() |>
+#     (\(.)
+#      . |> set_names(sprintf("x%03d", 1:ncol(.)))
+#      )()
+
+
+
+
+
+# # match inhaler use to school names and ids
+# inh_use <- inh_use |>
+#
+#     rename_by_label(
+#         label = "At what school was the stock inhaler given?",
+#         newname = "school_name"
+#         ) |>
+#     mutate(
+#         school_match_name = gsub("_", "", snakecase::to_snake_case(school_name)),
+#         school_match_name = case_when(
+#             school_match_name  == "kenwood" ~ "kenwoodhs",
+#             school_match_name  == "lindbloom" ~ "lindblomhs",
+#             school_match_name  == "cant" ~ "canty",
+#             .default = school_match_name
+#         ),
+#         .after = 1
+#         ) |>
+#
+#     mutate(across(where(is.POSIXt), as.Date)) |>
+#
+#     left_join(
+#         school_names_ids |>
+#             distinct(school_match_name, school_id),
+#         by = "school_match_name"
+#     ) |>
+#
+#     write_data(get_global("analytic_files")$inh_use, csv = TRUE)
+
+
+
+
+# Apply factor codes from dataframe/list
+# factor_codes = list(
+#   vname_1 = data.frame(
+#     levels = c(1, 2, 3),
+#     labels = c("a", "b", "c")
+#     )
+#   )
+# my_cleaned_data <- my_raw_data
+# for (i in intersect(names(factor_codes), names(my_raw_data))) {
+#   my_cleaned_data[[i]] <- factor(
+#     my_raw_data[[i]],
+#     levels = factor_codes[[i]]$level,
+#     labels = factor_codes[[i]]$label
+#   )
+# }
+
+##########################################################################
+# Save output
+# out_tables[["My Data"]] <- my_data |>
+#     write_data("my_data")
+
+
+
+
+
+
+
+inh_use |>
+    rename_by_label(label = "ID", newname = "row_id") |>
+    rename_by_label("Recipient Sex",  "rcp_sex") |>
+    rename_by_label("Recipient Race", "rcp_race") |>
+    rename_by_label("Recipient Ethnicity", "rcp_eth") |>
+    rename_by_label("Recipient age (If recipient is a visitor over the age of 18, student teacher, or school personnel select \"Adult\")", "rcp_age") |>
+    rename_by_label("On what date the stock inhaler given?", "admin_date") |>
+    rename_by_label("Location of Incident (Playground, gym, nurse's office, specific classroom number, etc.)", "adm_loc") |>
+    rename_by_label("Under what protocol was the stock inhaler given?", "adm_protocol") |>
+    rename_by_label("Was the school nurse present or notified?", "nurse_present") |>
+    rename_by_label("Exposure to pollen allergen", "exp_pollen") |>
+    rename_by_label("Exposure to dust allergen", "exp_dust") |>
+    rename_by_label("Exposure to animal dander", "exp_anim") |>
+    rename_by_label("Exposure to smoke in the environment", "exp_smok") |>
+    rename_by_label("Exposure to air pollution in the environment", "exp_air") |>
+    rename_by_label("Exposure to hot weather", "exp_heat") |>
+    rename_by_label("Exposure to cold weather", "exp_cold") |>
+    rename_by_label("Physical activity or exercise", "exp_phys") |>
+    rename_by_label("Unknown", "exp_unk") |>
+    rename_by_label("No exposure", "exp_none") |>
+    rename_by_label("Other...29", "exp_other") |>
+    rename_by_label("Shortness of breath", "sym_sob") |>
+    rename_by_label("Wheezing", "sym_wheeze") |>
+    rename_by_label("Coughing", "sym_cough") |>
+    rename_by_label("Chest tightness", "sym_tight") |>
+    rename_by_label("Rapid breathing", "sym_rapid") |>
+    rename_by_label("Difficulty speaking or completing sentences", "sym_speak") |>
+    rename_by_label("Chest pain", "sym_chpain") |>
+    rename_by_label("Flaring of the nostrils", "sym_flare") |>
+    rename_by_label("Retraction of neck and chest muscles", "sym_musc") |>
+    rename_by_label("Bluish or pale coloration of the lips or fingertips", "sym_blue") |>
+    rename_by_label("Anxiety or restlessness", "sym_anx") |>
+    rename_by_label("breathing difficulty", "sym_brdiff") |>
+    rename_by_label("No symptoms", "sym_none") |>
+    rename_by_label("Other...46", "sym_other") |>
+    rename_by_label("Correct Pathway", "pathway_true") |>
+    rename_by_label("Chosen right pathway?", "pathway_chosen") |>
+    rename_by_label("What is the name of the inhaler/medication given? (HFA Albuterol, ProAir RespiClick, etc.)", "inh_med") |>
+    rename_by_label("Was a spacer device used? (Either plastic or paper)", "spacer") |>
+    rename_by_label("How many puffs were administered using the HFA Inhaler?", "n_puffs_hfa") |>
+    rename_by_label("Compliant with nurse-selected pathway", "pathway_chosen_compl") |>
+    rename_by_label("compliant with correct pathway", "pathway_true_compl") |>
+    rename_by_label("Was a disposable mouthpiece used?", "mouthpiece") |>
+    rename_by_label("How many puffs were administered using the ProAir RespiClick?", "n_puffs_respi") |>
+    rename_by_label("Type of person administered", "rcp_role") |>
+    rename_by_label("Previous Dagnosis", "rcp_dx_pre") |>
+    rename_by_label("Has the student since received an asthma diagnosis?", "rcp_dx_post") |>
+    rename_by_label("Do they need assistance connecting with a healthcare provider or finding insurance coverage?", "hc_help") |>
+    rename_by_label("Any Previous Usage", "inh_use_prev") |>
+    rename_by_label("Was inhaler administered to prevent symptoms or given due to breathing difficulties?", "why_given") |>
+    rename_by_label("According to the protocol, was the individual exhibiting mild-moderate symptoms or severe symptoms?", "severity") |>
+    rename_by_label("As far as you are aware, is this the first time the individual has ever experienced these kind of symptoms at school?", "sym_new") |>
+    rename_by_label("In your professional opinion, what would have happened if the student/individual did not have access to stock inhaler medication?", "hypo_disp") |>
+    rename_by_label("Hypothetical_Disposition_simplified", "hypo_disp_rcd") |>
+    rename_by_label("What DID happen to the student/individual after the inhaler was given?", "true_disp") |>
+    rename_by_label("Actual_Disposition_simplified", "true_disp_rcd") |>
+    rename_by_label("Did the individual go to the hospital after emergency services came?", "hosp") |>
+    rename_by_label("How did they get to the hospital?", "transport") |>
+    relocate(-starts_with("x"))
+school_names_ids <- list.files(file.path(params$project_dir, "data-raw"), "xls", full.names = TRUE) |>
+    set_names() |>
+    map(~{
+        nms <- readxl::read_excel(.x, sheet = "Schools", col_names = FALSE, n_max = 4) |>
+            filter(!grepl("\\*", ...1)) |>
+            slice(1:2) |>
+            summarise(across(everything(), ~ paste(na.omit(unlist(.x)), collapse = "; "))) |>
+            unlist()
+
+        readxl::read_excel(.x, sheet = "Schools", col_names = nms)
+    }) |>
+    map_dfr(~{
+        .x |>
+            janitor::clean_names() |>
+            select(matches("school_id"), school_name, total) |>
+            set_names(c("school_id", "school_name", "total"))
+    }, .id = "source") |>
+    mutate(
+        source = basename(source),
+        school_match_name = gsub("_", "", snakecase::to_snake_case(school_name))
+        ) |>
+    filter(!is.na(school_id)) |>
+    filter(!grepl("school", tolower(school_id)))
+
+
+
+
+
+
+
+
+
+
+
+# TODO: investigate, deal with missing data
+
+```
+
+
+
+
+
+```{r}
+gee_a <- read_rds(
+  file.path(
+    params$project_dir,
+    "data", Sys.Date(), 
+    "gee_mod_list.rds"
+))
+```
+
+```{r}
+# gee_b <- read_rds(
+#   file.path(
+#     params$project_dir,
+#     "data", Sys.Date(), 
+#     "gee_mod_asth_intx_list.rds"
+# ))
+```
+
+
+
+# Asthma Outcome
+
+Model summary
+
+```{r}
+mod_current <- gee_a$asthma
+summary(mod_current)
+```
+
+Change from baseline, overall
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  trt.vs.ctrl ~ data_schoolyear | student_race, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+YOY change, overall
+
+```{r}
+emmeans::contrast(emmeans::emmeans(
+  mod_current, 
+ trt.vs.ctrl ~ data_schoolyear | student_race, 
+  type = "response",
+  weights = "proportional"
+  ), "consec")
+```
+
+
+```{r}
+emmeans::contrast(emmeans::emmeans(
+  mod_current, 
+ trt.vs.ctrl ~ data_schoolyear | student_race, 
+  type = "response",
+  weights = "proportional"
+  ), "poly")
+```
+
+Gender-specific estimates
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  ~ student_gender | data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+Gender diffs, pairwise
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(
+    mod_current, ~ student_gender, type = "response", weights = "proportional"
+    ),
+  "pairwise"
+)
+```
+
+Gender diffs, each vs. all others
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(
+    mod_current, ~ student_gender, type = "response", weights = "proportional"
+    ),
+  "del.eff"
+)
+```
+
+Race/ethnicity-specific estimates
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  ~ student_race | data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+Race/ethnicity diffs, pairwise
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(mod_current, ~ student_race, type = "response",
+  weights = "proportional"),
+  "pairwise"
+)
+```
+
+Race/ethnicity diffs, each vs. all others
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(mod_current, ~ student_race, type = "response",
+  weights = "proportional"),
+  "del.eff"
+)
+```
+
+
+
+
+
+
+
+
+
+
+# 504 Outcome
+
+Model summary
+
+```{r}
+mod_current <- gee_a$x504
+summary(mod_current)
+```
+
+Change from baseline, overall
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  trt.vs.ctrl ~ data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+YOY change, overall
+
+```{r}
+emmeans::contrast(emmeans::emmeans(
+  mod_current, 
+  ~ data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  ), "consec")
+```
+
+Gender-specific estimates
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  ~ student_gender | data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+Gender diffs, pairwise
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(
+    mod_current, ~ student_gender, type = "response", weights = "proportional"
+    ),
+  "pairwise"
+)
+```
+
+Gender diffs, each vs. all others
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(
+    mod_current, ~ student_gender, type = "response", weights = "proportional"
+    ),
+  "del.eff"
+)
+```
+
+Race/ethnicity-specific estimates
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  ~ student_race | data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+Race/ethnicity diffs, pairwise
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(mod_current, ~ student_race, type = "response",
+  weights = "proportional"),
+  "pairwise"
+)
+```
+
+Race/ethnicity diffs, each vs. all others
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(mod_current, ~ student_race, type = "response",
+  weights = "proportional"),
+  "del.eff"
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# IEP Outcome
+
+Model summary
+
+```{r}
+mod_current <- gee_a$iep
+summary(mod_current)
+```
+
+Change from baseline, overall
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  trt.vs.ctrl ~ data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+YOY change, overall
+
+```{r}
+emmeans::contrast(emmeans::emmeans(
+  mod_current, 
+  ~ data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  ), "consec")
+```
+
+Gender-specific estimates
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  ~ student_gender | data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+Gender diffs, pairwise
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(
+    mod_current, ~ student_gender, type = "response", weights = "proportional"
+    ),
+  "pairwise"
+)
+```
+
+Gender diffs, each vs. all others
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(
+    mod_current, ~ student_gender, type = "response", weights = "proportional"
+    ),
+  "del.eff"
+)
+```
+
+Race/ethnicity-specific estimates
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  ~ student_race | data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+Race/ethnicity diffs, pairwise
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(mod_current, ~ student_race, type = "response",
+  weights = "proportional"),
+  "pairwise"
+)
+```
+
+Race/ethnicity diffs, each vs. all others
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(mod_current, ~ student_race, type = "response",
+  weights = "proportional"),
+  "del.eff"
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Attendance Outcome
+
+Model summary
+
+```{r}
+mod_current <- gee_a$attendance
+summary(mod_current)
+```
+
+Change from baseline, overall
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  trt.vs.ctrl ~ data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+YOY change, overall
+
+```{r}
+emmeans::contrast(emmeans::emmeans(
+  mod_current, 
+  ~ data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  ), "consec")
+```
+
+Gender-specific estimates
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  ~ student_gender | data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+Gender diffs, pairwise
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(
+    mod_current, ~ student_gender, type = "response", weights = "proportional"
+    ),
+  "pairwise"
+)
+```
+
+Gender diffs, each vs. all others
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(
+    mod_current, ~ student_gender, type = "response", weights = "proportional"
+    ),
+  "del.eff"
+)
+```
+
+Race/ethnicity-specific estimates
+
+```{r}
+emmeans::emmeans(
+  mod_current, 
+  ~ student_race | data_schoolyear, 
+  type = "response",
+  weights = "proportional"
+  )
+```
+
+Race/ethnicity diffs, pairwise
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(mod_current, ~ student_race, type = "response",
+  weights = "proportional"),
+  "pairwise"
+)
+```
+
+Race/ethnicity diffs, each vs. all others
+
+```{r}
+emmeans::contrast(
+  emmeans::emmeans(mod_current, ~ student_race, type = "response",
+  weights = "proportional"),
+  "del.eff"
+)
+```
+

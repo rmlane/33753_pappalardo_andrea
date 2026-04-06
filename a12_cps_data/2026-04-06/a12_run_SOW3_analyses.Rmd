@@ -1,0 +1,424 @@
+---
+title: "CPS Data Summary"
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+params:
+  parent_dir: "a12_cps_data" # relative to project root
+  version: "2026-04-06" 
+  raw_data_cps:
+    value:
+      file: "UIC Asthma Status Data Albuterol SoW Shell_07252025.xlsx"
+      sheet: "SY22, 23, 24 and 25 Asthma Stat"
+      box_id: '1938297974039'
+      clean_name: "student_counts"
+  raw_data_schools_metadata:
+    value: 
+      file: "CPS Schools CCAs Regions.xlsx"
+      sheet: NULL
+      box_id: '2071252778107'
+      clean_name: "schools"
+  raw_data_utilization:
+    # value:
+    #   file: "CPS 2023-2025 utilization recode.xlsx"
+    #   sheet: "Sheet1"
+    #   box_id: '2017350498669'
+    #   clean_name: "inhaler_events"
+    value: # added 2026-03-25
+      file: "CPS 2023-2025 utilization recode_3-23.xlsx"
+      sheet: "Utilization Data"
+      box_id: '2173811730030'
+      clean_name: "inhaler_events"
+      force_preproc: TRUE
+  raw_data_waves: # added 2026-01-21
+    value:
+      file: "CPS Ramp Up School List_MostUpdated.xlsx"
+      sheet: "Sheet1"
+      box_id: "2109640911794"
+      clean_name: "waves"
+  raw_sy_dates: # added 2026-03-04
+    value:
+      box_id: "2154041346707"
+      file: "schoolyear_dates.xlsx"
+      sheet: "Sheet1"
+      clean_name: "school_year_dates"
+      # force_preproc: true
+  enrollment_count_files: # box ids
+    value: 
+      sy_22: "2154049626576"
+      sy_23: "2154041838698"
+      sy_24: "2154043506963"
+      sy_25: "2154043912572"
+      sy_26: "2154047037077"
+  force_preproc: FALSE
+knit: |
+  (function(input, ...) {
+      rmarkdown::render(
+        input, 
+        output_file   = paste0("33753_cps_data_", Sys.Date()),
+        output_dir    = file.path(dirname(input), "output"),
+        envir         = globalenv()
+      )
+  })
+---
+
+```{r K, echo = FALSE, include = FALSE}
+# define document options
+knitr::opts_chunk$set(
+  echo    = FALSE, eval    = TRUE, 
+  message = FALSE, warning = FALSE
+  )
+```
+
+```{r, include = FALSE}
+# load libraries
+library(tidyverse)
+```
+
+```{r chunk_opts, echo = FALSE, include = FALSE}
+# define formatting options
+options(knitr.kable.NA = '')
+thm <- theme_set(theme_bw())
+```
+
+```{r}
+# function for easier navigation of relative refs
+nested_here <- function(
+    ...,    
+    parent_dir = params$parent_dir, 
+    version    = params$version
+    ) {
+    here::here(parent_dir, version, ...)
+}
+```
+
+```{r}
+# (maybe) create subdirectories for code, data, output
+walk(nested_here(c("R", "data", "output", "output/tables")), ~{
+  if(!dir.exists(.x)) {dir.create(.x, recursive = TRUE)}
+  })
+
+# load functions
+list.files(nested_here("R"), "fx.R$", full.names = TRUE) |> 
+  walk(source)
+```
+
+
+
+# Data Processing
+
+## Process and Merge Raw Data Files
+
+```{r, include = FALSE}
+# for each raw data source...
+regen_files <- params |> 
+  keep_at(~ grepl("raw", .x)) |> 
+  set_names_from_child("clean_name") |> 
+  imap(~{
+    .x |> list_assign(
+      f_name         = nested_here("data", paste0("pre_", .y, ".rds")),
+      force_preproc  = coalesce(
+        .x |> 
+          pluck("force_preproc"), 
+        params$force_preproc
+        )
+      )
+  }) |> 
+  
+  # if any doesn't exist or needs forced regeneration...
+  keep(~ (!file.exists(.x$f_name) | .x$force_preproc)) |> 
+  
+  # process and write to file
+  map(~{fetch_and_preproc(.x) |>  write_rds(.x$f_name)})
+
+# (maybe) re-merge files
+if(length(regen_files) > 0) {
+  source(nested_here("R", "MERGE.R"))
+  }
+```
+
+# Describe School Chars by Year
+
+```{r}
+write_table <- function(x, loc = nested_here("output", "tables")) {
+  n_extant <- length(list.files(loc, "^t.*rds$"))
+  write_rds(
+    x,
+    file.path(loc, glue::glue("t{sprintf('%03d', n_extant+1)}.rds"))
+  )
+}
+```
+
+```{r}
+# schools overall, annual data
+school_tby(
+  y_var = "",
+  df    = read_rds(nested_here("data", "analytic_school_lvl.rds")),
+  ) |> 
+  structure(
+    title       = "School Characteristics by School Year",
+    sheetname   = "descr_school_char_by_year",
+    description = "Summary statistics of school-level characteristics and demographics. Variables from CPS (e.g., % with asthma) are tabulated separately for each school year (2021-2022 to 2024-2025)."
+    ) |>
+  
+  write_rds(nested_here("output", "tables", "sow3_t01a_chars_by_sy.rds"))
+```
+
+
+```{r}
+# test changes from year to year (all pairwise)
+read_rds(nested_here("data", "analytic_school_lvl.rds")) |> 
+  filter(!is.na(student_count)) |> 
+  droplevels() |>
+  pivot_longer(
+    c(student_count, average_attendance, matches("pct")),
+    names_to = "x"
+    ) |> 
+
+  pivot_wider(
+    names_from = data_schoolyear,
+    id_cols    = c(school_id, x)
+    ) |> 
+  
+  mutate(
+   `(2022-2023) - (2021-2022)` = `2022-2023` - `2021-2022`,
+   `(2023-2024) - (2021-2022)` = `2023-2024` - `2021-2022`,
+   `(2023-2024) - (2022-2023)` = `2023-2024` - `2022-2023`,
+   `(2024-2025) - (2021-2022)` = `2024-2025` - `2021-2022`,
+   `(2024-2025) - (2022-2023)` = `2024-2025` - `2022-2023`,
+   `(2024-2025) - (2023-2024)` = `2024-2025` - `2023-2024`
+   ) |> 
+  
+  select(school_id, x, matches("\\(")) |> 
+  pivot_longer(where(is.numeric), names_to = "contrast", values_to = "abs_change") |> 
+  
+  summarise(
+    n_schools = sum(!is.na(abs_change)),
+    broom::tidy(wilcox.test(abs_change, exact = TRUE, conf.int = TRUE)),
+    .by       = c(x, contrast)
+  ) |> 
+  rename(med.change = estimate, med.change.conf.low = conf.low, med.change.conf.high = conf.high) |> 
+  mutate(
+    p.adjust        = p.adjust(p.value, "holm"), 
+    p.adjust.n      = sum(!is.na(p.value)),
+    p.adjust.method = "holm",
+    .after          = p.value,
+    .by             = x
+    )  |> 
+  
+  structure(
+    title       = "Test Change in School Characteristics Over Time",
+    sheetname   = "test_school_char_change",
+    description = "Annual school-level numeric variables (e.g., attendance, % with asthma) were tested for evidence of change over time. For each variable, within-school change was calculated from schoolyear to schoolyear (all pairwise schoolyear comparisons). School-level change between each pair of years was then tested for symmetry around zero (i.e., no change over time) by a one-sample Wilcoxon signed-rank test. p-values for the set of 6 pairwise year comparisons for each variable were adjusted by the Holm method."
+    ) |>
+  
+    write_rds(nested_here("output", "tables", "sow3_t01b_test_chars_by_sy.rds"))
+```
+
+
+
+
+
+
+
+# Describe School Chars (2023-2024) by Inhaler Events
+
+```{r}
+# any events, 2023-2024 only, separating late implementers
+school_tby(
+  y_var = "any_events_l3",
+  df    = read_rds(nested_here("data", "analytic_school_lvl.rds")) |> 
+    filter(data_schoolyear %in% c("2023-2024")),
+   tby_ctrl = arsenal::tableby.control(
+      test           = FALSE,
+      digits.n	      = NA,
+      numeric.stats  = c("medianrange", "q1q3",  "meansd")
+    ),
+  ) |> 
+  
+  structure(
+    title       = "School Characteristics by Leven of Inhaler Utilization, SY 2023-2024",
+    sheetname   = "descr_util_groups_23_24",
+    description = "Summary statistics of school-level characteristics and demographics in the 2023-2024 schoolyear. Schools are grouped by inhaler utilization level in the 2023-2024 school year (0 events vs. 1+ events vs. N/A).") |> 
+  
+    write_rds(nested_here("output", "tables", "sow3_t02a_chars_by_util.rds"))
+```
+
+
+```{r}
+full_join(
+  
+  c("grade_level", "region_3grp",  "region_2grp" ) |> 
+    set_names() |> 
+    map_dfr(~{
+      test_categ(.x, groups = "any_events_l3", data = read_df_sy("2023-2024"))
+    }, .id = "x"),
+  
+  c("student_count", "average_attendance", 
+    grep("pct", names(read_df_sy("2023-2024")), value = TRUE)) |> 
+    set_names() |>  
+    map_dfr(~{
+      test_ordered(.x, groups = "any_events_l3", data = read_df_sy("2023-2024"))
+    }, .id = "x")
+  
+) |> 
+  mutate(data_schoolyear = "2023-2024", .before = 1) |> 
+  relocate(data_schoolyear, x, x_pair, group1, group2, n, p.value, matches("p.adj")) |> 
+  
+    structure(
+    title       = "Test Differences in School Characteristics by Level of Inhaler Utilization, SY 2023-2024",
+    sheetname   = "test_util_group_diffs_23_24",
+    description = "Three-group and pairwise comparisons of school characteristics by inhaler utilization level in the SY 2023-2024 schoolyear. Numeric variables are compared across groups (0 events, 1+ events, NA) by Kruskal-Wallis tests (all 3 groups) and pairwise Wilcoxon rank-sum tests (each pair of 2 groups). Categorical variables (e.g., grade level) are compared across groups (0 events, 1+ events, NA) Fisher's exact tests (all 3 groups and each pair of 2 groups). p-values for the set of three pairwise comparisons for each variable were adjusted by the Holm method.") |> 
+  
+  write_rds(nested_here("output", "tables", "sow3_t02b_test_chars_by_util.rds"))
+```
+
+
+
+
+# Utilization Detail
+
+```{r}
+
+```
+
+
+```{r}
+full_join(
+    read_rds(nested_here("data", "mrg_school_chars.rds")),
+    read_rds(nested_here("data", "mrg_inhaler_events.rds")),
+    by = "school_id"
+    ) |> 
+    select(-where(is.character)) |> 
+    select(-matches(" ")) |> 
+    select(-matches("\\.\\.\\.")) |> 
+    relocate(-any_of(c("impl_date", "school_id", "admin_protocol", "rcp_role",
+    "rcp_role_2", "hypo_disp_rcd", "hosp", "transport", matches("missing"),
+    "used_before", "...88", "data_season", "source"
+    ))) |> 
+  
+  (\(.) 
+   
+   
+
+arsenal::tableby(
+  arsenal::formulize(
+    "data_schoolyear", c(
+    
+    # recipient
+    "rcp_sex",  "rcp_race",  "rcp_eth", # "rcp_age",
+    "rcp_role",  "sym_new",  "rcp_dx_pre",  "inh_use_prev",
+
+    # incident
+    "season", "why_given",
+    
+    # school chars
+      "wave", "grade_level",
+    
+    # disposition
+    # hypo_disp_rcd + true_disp_rcd,
+  
+      names(.))
+    ),
+  # test = FALSE,
+  data = .,
+  control = arsenal::tableby.control(
+    test           = FALSE,
+    digits.n	      = NA,
+    numeric.stats  = c("medianrange", "q1q3",  "meansd")
+    )
+  # total = FALSE
+  ) |>
+  arsenal:::summary.tableby(text = TRUE, labelTranslations = list(rcp_age = "Age")) |>
+  as.data.frame()
+
+)()
+  # write_output("Table2_Utilization")
+```
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+## Attendance, Asthma, IEPs, 504s
+
+
+# Longitudinal Models
+
+* Check for significant interactions:
+    * time by gender (504 outcome)
+    * time by gender (IEP outcome)
+    * time by gender (asthma outcome)
+    * time by gender (attendance outcome)
+    * time by race (504 outcome)
+    * time by race (IEP outcome)
+    * time by race (asthma outcome)
+    * time by race (attendance outcome)
+    
+    Model each outcome probability by school year, race, gender, 
+active_months, wave, grade_level, utilization
+
+
+
+
+
+
+
+# Write Results
+
+```{r}
+out_tables <- list(
+  About = t(data.frame(
+    Date   = Sys.Date(),
+    Author = "Rachel Lane",
+    Title  = "SOW 2 Tables"
+  )) |> 
+  as.data.frame() |> 
+  set_names("value") |> 
+  rownames_to_column("name")
+  )
+out_tables[["About"]] <- rbind(
+  out_tables[["About"]],
+  params |> 
+    keep_at(~ grepl("raw", .x)) |> 
+    set_names_from_child("clean_name") |> 
+    map_dfr(~data.frame(
+      name = "Data Sources",
+      value = glue::glue("File: {.x$file}. Sheet: {coalesce(.x$sheet, '1')}. Box file ID: {.x$box_id}")
+      )))
+
+```
+
+```{r}
+for (f in list.files(
+  nested_here("output", "tables"),
+  "sow3"
+  )) {
+  d <- read_rds(nested_here("output", "tables", f))
+  out_tables[[attr(d, "sheetname")]] <- d
+  out_tables$About <- out_tables$About |> 
+    add_case(
+      name = "Contents",
+      value = glue::glue('Sheet: {attr(d, "sheetname")}. Title: {attr(d, "title")}. Description: {attr(d, "description")}')
+    )
+  }
+
+```
+
+```{r}
+openxlsx::write.xlsx(
+  out_tables,
+  nested_here("output", paste0("sow3_tables_", Sys.Date(), ".xlsx")),
+  asTable = TRUE
+)
+```
+
+
