@@ -1,0 +1,955 @@
+---
+title: "CPS Data Summary: Longitudinal Outcomes"
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+params:
+  parent_dir: "a12_cps_data" # relative to project root
+  version: "2026-06-09" 
+  raw_data_cps:
+    value:
+      file: "UIC Asthma Status Data Albuterol SoW Shell_07252025.xlsx"
+      sheet: "SY22, 23, 24 and 25 Asthma Stat"
+      box_id: '1938297974039'
+      clean_name: "student_counts"
+  raw_data_schools_metadata:
+    value: 
+      file: "CPS Schools CCAs Regions.xlsx"
+      sheet: NULL
+      box_id: '2071252778107'
+      clean_name: "schools"
+  raw_data_utilization:
+    # value:
+    #   file: "CPS 2023-2025 utilization recode.xlsx"
+    #   sheet: "Sheet1"
+    #   box_id: '2017350498669'
+    #   clean_name: "inhaler_events"
+    value: # added 2026-03-25
+      file: "CPS 2023-2025 utilization recode_3-23.xlsx"
+      sheet: "Utilization Data"
+      box_id: '2173811730030'
+      clean_name: "inhaler_events"
+      # force_preproc: TRUE
+  raw_data_waves: # added 2026-01-21
+    value:
+      file: "CPS Ramp Up School List_MostUpdated.xlsx"
+      sheet: "Sheet1"
+      box_id: "2109640911794"
+      clean_name: "waves"
+  raw_sy_dates: # added 2026-03-04
+    value:
+      box_id: "2154041346707"
+      file: "schoolyear_dates.xlsx"
+      sheet: "Sheet1"
+      clean_name: "school_year_dates"
+      # force_preproc: true
+  enrollment_count_files: # box ids
+    value: 
+      sy_22: "2154049626576"
+      sy_23: "2154041838698"
+      sy_24: "2154043506963"
+      sy_25: "2154043912572"
+      sy_26: "2154047037077"
+  force_preproc: FALSE
+knit: |
+  (function(input, ...) {
+      rmarkdown::render(
+        input, 
+        output_file   = paste0("33753_cps_data_", Sys.Date()),
+        output_dir    = file.path(dirname(input), "output"),
+        envir         = globalenv()
+      )
+  })
+---
+
+```{r K, echo = FALSE, include = FALSE}
+# define document options
+knitr::opts_chunk$set(
+  echo    = FALSE, eval    = TRUE, 
+  message = FALSE, warning = FALSE
+  )
+```
+
+```{r, include = FALSE}
+# load libraries
+library(tidyverse)
+```
+
+```{r chunk_opts, echo = FALSE, include = FALSE}
+# define formatting options
+options(knitr.kable.NA = '')
+thm <- theme_set(theme_bw())
+```
+
+```{r}
+# function for easier navigation of relative refs
+nested_here <- function(
+    ...,    
+    parent_dir = params$parent_dir, 
+    version    = params$version
+    ) {
+    here::here(parent_dir, version, ...)
+}
+```
+
+```{r}
+# (maybe) create subdirectories for code, data, output
+walk(nested_here(c("R", "data", "output", "output/tables")), ~{
+  if(!dir.exists(.x)) {dir.create(.x, recursive = TRUE)}
+  })
+
+# load external functions
+list.files(nested_here("R"), "fx.R$", full.names = TRUE) |> 
+  walk(source)
+```
+
+
+
+# Data Processing
+
+```{r}
+# more precise schoolyear dates
+data_dates <- full_join(
+  read_rds(nested_here("data", "pre_school_year_dates.rds")) |> 
+    filter(season == "fall") |> 
+    distinct(data_schoolyear, start) |> 
+    mutate(
+      demog_date = start + duration(20, units = "days"),
+      .keep      = "unused"
+      ),
+  
+  read_rds(nested_here("data", "pre_school_year_dates.rds")) |> 
+    filter(season == "spring") |> 
+    distinct(data_schoolyear, end) |> 
+    mutate(
+      asthma_date     = end,
+      attendance_date = end,
+      .keep           = "unused"
+      ),
+  
+  by = "data_schoolyear"
+  )
+```
+
+```{r}
+use_counts <- full_join(
+  data_dates |> 
+    mutate(admin_date = asthma_date),
+
+  read_rds(nested_here("data", "mrg_inhaler_events.rds")) |> 
+    select(school_id, admin_date),
+  
+  by = "admin_date"
+) |> 
+  
+  arrange(admin_date) |> 
+  fill(data_schoolyear, .direction = "up") |> 
+  filter(!is.na(school_id)) |> 
+  droplevels() |> 
+  count(data_schoolyear, school_id, name = "n_inh_events")
+```
+
+```{r}
+# read_rds(nested_here("data", "mrg_inhaler_events.rds")) |> 
+#     select(school_id, admin_date)
+# use_counts
+```
+
+
+```{r}
+school_chars <- right_join(
+  data_dates,
+  read_rds(nested_here("data", "analytic_school_lvl.rds")),
+  by = "data_schoolyear"
+  ) |> 
+  select(-matches("events")) |> 
+  
+  full_join(
+    readxl::read_xls(
+      nested_here("data", "CPS_EJI_EXCEL.xls"),
+      na = c("", "-999")
+      ) |> 
+      janitor::clean_names() |>  
+      distinct(school_id, rpl_ser) |> 
+      mutate(school_id = as.character(school_id)),
+    by = "school_id"
+  ) |> 
+  filter(!is.na(data_schoolyear))
+
+school_chars <- school_chars |> 
+  full_join(
+    school_chars |> 
+      select(data_schoolyear, school_id, matches("pct_student_race")) |> 
+      pivot_longer(matches("pct_student_race")) |>
+      filter(value == max(value), .by = c(data_schoolyear, school_id)) |> 
+      mutate(
+        re_profile = case_when(
+          value >= 66.6 ~ gsub("pct_student_race", "maj", name),
+          .default = "no_maj"
+        ),
+        .keep = "unused"
+      ) 
+  ) |> 
+  
+  full_join(
+    school_chars |> 
+      select(data_schoolyear, school_id, 
+             student_count, count_student_gender_male,
+             count_student_gender_unknown) |> 
+      mutate(
+        gender_profile = cut(
+          count_student_gender_male / 
+            (student_count - coalesce(count_student_gender_unknown, 0)),
+          breaks         = c(0, .333, .666, 1),
+          include.lowest = TRUE,
+          labels         = c("majority female", "balanced", "majority male")
+          ),
+        .keep = "unused"
+        )
+  )
+```
+
+
+```{r}
+ipw_data <- school_chars |> 
+  
+  rowwise() |> 
+  mutate(
+    sy_days         = 176,
+    program_cum_days = max(
+      as.numeric(difftime(asthma_date, impl_date, units = "days")), 
+      0),
+    
+    program_sy_days = min(program_cum_days, sy_days)
+    ) |> 
+  ungroup() |> 
+  
+  mutate(
+    sy_stu_days         = sy_days*student_count,
+    program_sy_stu_days = program_sy_days*student_count,
+    program_sy_prop     = program_sy_days / sy_days
+  ) |> 
+  
+  left_join(use_counts, by = c("data_schoolyear", "school_id")) |> 
+  mutate(
+    n_events = coalesce(n_inh_events, 0),
+    n_inh_rate = case_when(
+      program_sy_stu_days == 0 ~ 0,
+      .default = (n_events / program_sy_stu_days)*1000
+      ),
+    n_events_cumulative = cumsum(n_events),
+    
+    any_events = factor(I(n_events > 0)),
+    any_events_cumulative = factor(I(n_events_cumulative > 0)),
+    any_events_l3 = case_when(
+      program_sy_days == 0 ~ "NA - Not Enrolled",
+      .default = any_events
+      ),
+    any_events_cumulative_l3 = case_when(
+      program_sy_days == 0 ~ "NA - Not Enrolled",
+      .default = any_events_cumulative
+      ),
+    .by = school_id,
+    .before = 1
+    )
+
+```
+
+
+
+Q: school-level utilization sufficient? interested in demog-specific utilization?
+
+Demographic data (year start)
+
+```{r}
+# schools overall, annual data
+school_tby(
+  y_var = "",
+  x_var =  c(
+            "notest(n_schools)", "grade_level", "notest(region)",
+            "rpl_ser",
+            "student_count", 
+            "pct_student_race_american_indian",
+            "pct_student_race_asian_hawaiian_pacific_islander",
+            "pct_student_race_black_non_hispanic",
+            "pct_student_race_hispanic", "pct_student_race_multi",
+            "pct_student_race_unknown", "pct_student_race_white_non_hispanic",
+            "notest(pct_student_race_middle_eastern_or_north_african)",
+            "pct_student_gender_female", "pct_student_gender_male",
+            "pct_student_gender_non_binary", "pct_student_gender_unknown",
+            "pct_student_504_yes", "pct_iep_yes", "pct_esl_yes",
+            "pct_frm_yes", "pct_homelessness_yes",
+            "average_attendance",
+            "pct_asthma_yes", "pct_food_allergy_yes",
+            "pct_non_food_allergy_yes"
+        ),
+  df    = ipw_data
+) |> 
+  structure(
+    title       = "School Characteristics by School Year (Day 20)",
+    sheetname   = "descr_school_char_by_year",
+    description = "Summary statistics of school-level characteristics and demographics. Variables from CPS are tabulated separately for each school year (2021-2022 to 2024-2025). Demographics are as of Day 20 of each school year. Chronic condition and attendance are as of the end of the school year."
+  )
+```
+
+
+
+```{r}
+ipw_data |> 
+  relocate(matches("event"), matches("inh"))
+```
+
+
+```{r}
+# schools overall, annual data
+school_tby(
+  y_var = "wave",
+  x_var = c(
+    # "wave",
+    "as.factor(impl_date)",
+    "factor(sy_days)", "factor(program_sy_days)", "factor(program_cum_days)",
+    "n_events",
+    "n_events_cumulative",
+    "any_events",
+    "any_events_cumulative",
+    "any_events_l3",
+    "any_events_cumulative_l3",
+    "n_inh_rate"
+    ), 
+    df    = ipw_data |> 
+    filter(!data_schoolyear %in% c("2021-2022", "2022-2023"))
+    ) |> 
+  rename(variable = 2) |> 
+  
+  filter(Total != "0 (0.0%)") |> 
+  structure(
+    title       = "Program Utilization by School Year",
+    sheetname   = "school_util_by_year",
+    description = "Summary statistics of school-level program enrollment and inhaler utilization. Data are as of the end of each school year."
+  ) #|>
+  
+  # write_table("school_chars_by_sy")
+```
+
+Inhaler events per program days (cumulative)
+
+```{r}
+mod_null <- glm(
+  n_events_cumulative ~ 1,
+  offset = log(program_cum_days),
+  family = poisson(),
+  data   = ipw_data |> 
+    filter(data_schoolyear == "2024-2025")
+  ) 
+summary(mod_null)
+```
+Predict inhaler events up to end of 2024-2025
+
+```{r}
+# covariates
+ipw_data_2425 <- full_join(
+  ipw_data |> 
+    filter(data_schoolyear %in% c("2023-2024", "2024-2025")) |> 
+    filter(!is.na(student_count)) |> 
+    select(school_id, data_schoolyear, student_count, average_attendance, starts_with("pct"),
+           matches("profile"),
+           matches("days")) |> 
+    arrange(data_schoolyear) |> 
+    group_split(data_schoolyear) |> 
+    reduce(
+      full_join, 
+      by     = c("school_id"),
+      suffix = c(".23_24", ".24_25")
+      ),
+  
+  # exposure vars
+  ipw_data |> 
+    filter(!is.na(student_count)) |> 
+    filter(data_schoolyear == "2024-2025") |> 
+    rename(exposure_date = asthma_date) |> 
+    select(
+      school_id, grade_level, rpl_ser, wave,
+      exposure_date,
+      n_events_cumulative, program_cum_days
+    )
+)
+  
+```
+
+```{r}
+ipw_numer <- glm(
+   n_events_cumulative ~ 1,
+   offset = log(program_cum_days),
+   data = ipw_data_2425,
+   family = poisson(link = "log")
+   )
+```
+
+
+```{r}
+library(mgcv)
+ipw_gam <- gam(
+  n_events_cumulative ~ 
+    s(student_count.23_24, bs = "cr") +
+    re_profile.24_25 +
+    gen_profile.24_25 +
+    s(average_attendance.23_24, bs = "cr") +
+    s(pct_asthma_yes.23_24, bs = "cr") +
+    s(student_count.24_25, bs = "cr") +
+    s(average_attendance.24_25, bs = "cr") +
+    s(pct_asthma_yes.24_25, bs = "cr") +
+    s(pct_food_allergy_yes.24_25, bs = "cr") +
+    s(pct_non_food_allergy_yes.24_25, bs = "cr") +
+    s(pct_student_504_yes.24_25, bs = "cr") +
+    s(pct_iep_yes.24_25, bs = "cr") +
+    s(pct_esl_yes.24_25, bs = "cr") +
+    s(pct_frm_yes.24_25, bs = "cr") +
+    s(pct_homelessness_yes.24_25, bs = "cr") +
+    s(rpl_ser, bs = "cr") + 
+    grade_level + 
+    wave,
+  offset = log(program_cum_days),
+  data   = ipw_data_2425,
+  family = poisson(link = "log")
+  )
+
+summary(ipw_gam)
+```
+
+
+
+```{r}
+stab_ipw <- 
+  dpois(ipw_data_2425$n_events_cumulative, predict(ipw_numer, type = "response")) /
+  dpois(ipw_data_2425$n_events_cumulative, predict(ipw_gam, type = "response"))
+stab_ipw[which(stab_ipw < quantile(stab_ipw, .05))] <- quantile(stab_ipw, .05)
+stab_ipw[which(stab_ipw > quantile(stab_ipw, .95))] <- quantile(stab_ipw, .95)
+ipw_data_2425$stab_ipw <- stab_ipw
+plot(stab_ipw)
+```
+
+
+
+
+
+
+```{r}
+attd_mod <- gam(
+  cbind(days_present, days_absent) ~ 
+    s(util_rate, bs = "cr") + 
+    s(student_count.23_24, bs = "cr") + 
+    s(pct_asthma_yes.23_24, bs = "cr") + 
+    s(student_count.24_25, bs = "cr") + 
+    s(pct_asthma_yes.24_25, bs = "cr") + 
+    s(pct_student_race_american_indian.24_25, bs = "cr") + 
+    s(pct_student_race_asian_hawaiian_pacific_islander.24_25, bs = "cr") +
+    s(pct_student_race_black_non_hispanic.24_25, bs = "cr") + 
+    s(pct_student_race_hispanic.24_25, bs = "cr") + 
+    s(pct_student_race_multi.24_25, bs = "cr") +
+    s(pct_student_race_unknown.24_25, bs = "cr") + 
+    s(pct_student_race_white_non_hispanic.24_25, bs = "cr") + 
+    s(pct_student_race_middle_eastern_or_north_african.24_25, bs = "cr") +
+    s(pct_student_gender_female.24_25, bs = "cr") + 
+    s(pct_student_gender_male.24_25, bs = "cr") + 
+    s(pct_student_gender_non_binary.24_25, bs = "cr") + 
+    s(pct_student_gender_unknown.24_25, bs = "cr") +
+    s(pct_food_allergy_yes.24_25, bs = "cr") + 
+    s(pct_non_food_allergy_yes.24_25, bs = "cr") + 
+    s(pct_student_504_yes.24_25, bs = "cr") + 
+    s(pct_iep_yes.24_25, bs = "cr") + 
+    s(pct_esl_yes.24_25, bs = "cr") + 
+    s(pct_frm_yes.24_25, bs = "cr") + 
+    s(pct_homelessness_yes.24_25, bs = "cr") + 
+    s(rpl_ser, bs = "cr") + 
+    grade_level + 
+    wave,
+  data = ipw_data_2425,
+  family = binomial(link = "logit"),
+  weights = stab_ipw
+  )
+
+summary(attd_mod)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+library(splines)
+ipw_denom <- glm(
+  n_events_cumulative ~ 
+    bs(student_count.23_24, knots = median(student_count.23_24)) + 
+    bs(average_attendance.23_24, knots = median(average_attendance.23_24)) + 
+    bs(pct_asthma_yes.23_24, knots = median(pct_asthma_yes.23_24)) + 
+    bs(student_count.24_25, knots = median(student_count.24_25)) + 
+    bs(average_attendance.24_25, knots = median(average_attendance.24_25)) + 
+    bs(pct_asthma_yes.24_25, knots = median(pct_asthma_yes.24_25)) + 
+    bs(pct_student_race_american_indian.24_25, knots = median(pct_student_race_american_indian.24_25)) + 
+    bs(pct_student_race_asian_hawaiian_pacific_islander.24_25, knots = median(pct_student_race_asian_hawaiian_pacific_islander.24_25)) +
+    bs(pct_student_race_black_non_hispanic.24_25, knots = median(pct_student_race_black_non_hispanic.24_25)) + 
+    bs(pct_student_race_hispanic.24_25, knots = median(pct_student_race_hispanic.24_25)) + 
+    bs(pct_student_race_multi.24_25, knots = median(pct_student_race_multi.24_25)) +
+    # bs(pct_student_race_unknown.24_25, knots = median(pct_student_race_unknown.24_25)) + 
+    bs(pct_student_race_white_non_hispanic.24_25, knots = median(pct_student_race_white_non_hispanic.24_25)) + 
+    # bs(knots = median(# ))pct_student_race_middle_eastern_or_north_african.24_25 + 
+    bs(pct_student_gender_female.24_25, knots = median(pct_student_gender_female.24_25)) + 
+    bs(pct_student_gender_male.24_25, knots = median(pct_student_gender_male.24_25)) + 
+    # bs(pct_student_gender_non_binary.24_25, knots = median(pct_student_gender_non_binary.24_25)) + 
+    # bs(knots = median(# ))pct_student_gender_unknown.24_25 + 
+    bs(pct_food_allergy_yes.24_25, knots = median(pct_food_allergy_yes.24_25)) + 
+    # bs(pct_non_food_allergy_yes.24_25, knots = median(pct_non_food_allergy_yes.24_25)) + 
+    bs(pct_student_504_yes.24_25, knots = median(pct_student_504_yes.24_25)) + 
+    bs(pct_iep_yes.24_25, knots = median(pct_iep_yes.24_25)) + 
+    bs(pct_esl_yes.24_25, knots = median(pct_esl_yes.24_25)) + 
+    bs(pct_frm_yes.24_25, knots = median(pct_frm_yes.24_25)) + 
+    bs(pct_homelessness_yes.24_25, knots = median(pct_homelessness_yes.24_25)) + 
+    bs(rpl_ser) + 
+    grade_level + 
+    wave,
+  offset = log(program_cum_days),
+  data   = ipw_data_2425,
+  family = poisson(link = "log")
+  )
+
+summary(ipw_denom)
+```
+
+
+```{r}
+stab_ipw <- 
+  dpois(ipw_data_2425$n_events_cumulative, predict(ipw_numer, type = "response")) /
+  dpois(ipw_data_2425$n_events_cumulative, predict(ipw_denom, type = "response"))
+stab_ipw[which(stab_ipw < quantile(stab_ipw, .01))] <- quantile(stab_ipw, .01)
+stab_ipw[which(stab_ipw > quantile(stab_ipw, .99))] <- quantile(stab_ipw, .99)
+ipw_data_2425$stab_ipw <- stab_ipw
+plot(stab_ipw)
+```
+
+```{r}
+# outcomes
+ipw_data_2425 <- ipw_data_2425 |> 
+  mutate(
+    util_rate    = n_events_cumulative / program_cum_days,
+    days_present = round((average_attendance.24_25/100)*student_count.24_25),
+    days_absent  = round((1 - average_attendance.24_25/100)*student_count.24_25),
+    .before = 1
+    )
+```
+
+
+```{r}
+
+attd_mod <- glm(
+  cbind(days_present, days_absent) ~ 
+    util_rate + 
+    student_count.23_24 + pct_asthma_yes.23_24 + 
+    student_count.24_25 + pct_asthma_yes.24_25 + 
+    pct_student_race_american_indian.24_25 + pct_student_race_asian_hawaiian_pacific_islander.24_25 +
+    pct_student_race_black_non_hispanic.24_25 + pct_student_race_hispanic.24_25 + pct_student_race_multi.24_25 +
+    pct_student_race_unknown.24_25 + pct_student_race_white_non_hispanic.24_25 + 
+    # pct_student_race_middle_eastern_or_north_african.24_25 + 
+    pct_student_gender_female.24_25 + 
+    pct_student_gender_male.24_25 + 
+    pct_student_gender_non_binary.24_25 + 
+    # pct_student_gender_unknown.24_25 + 
+    pct_food_allergy_yes.24_25 + 
+    pct_non_food_allergy_yes.24_25 + 
+    pct_student_504_yes.24_25 + 
+    pct_iep_yes.24_25 + 
+    pct_esl_yes.24_25 + 
+    pct_frm_yes.24_25 + 
+    pct_homelessness_yes.24_25 + 
+    grade_level + 
+    rpl_ser + 
+    wave,
+  data = ipw_data_2425,
+  family = binomial(link = "logit"),
+  weights = stab_ipw
+  )
+
+summary(attd_mod)
+```
+
+
+
+
+
+```{r}
+# test changes from year to year (all pairwise)
+read_rds(nested_here("data", "analytic_school_lvl.rds")) |> 
+  filter(!is.na(student_count)) |> 
+  droplevels() |>
+  pivot_longer(
+    c(student_count, average_attendance, matches("pct")),
+    names_to = "x"
+  ) |> 
+  
+  pivot_wider(
+    names_from = data_schoolyear,
+    id_cols    = c(school_id, x)
+  ) |> 
+  
+  mutate(
+    `(2022-2023) - (2021-2022)` = `2022-2023` - `2021-2022`,
+    `(2023-2024) - (2021-2022)` = `2023-2024` - `2021-2022`,
+    `(2023-2024) - (2022-2023)` = `2023-2024` - `2022-2023`,
+    `(2024-2025) - (2021-2022)` = `2024-2025` - `2021-2022`,
+    `(2024-2025) - (2022-2023)` = `2024-2025` - `2022-2023`,
+    `(2024-2025) - (2023-2024)` = `2024-2025` - `2023-2024`
+  ) |> 
+  
+  select(school_id, x, matches("\\(")) |> 
+  pivot_longer(where(is.numeric), names_to = "contrast", values_to = "abs_change") |> 
+  
+  summarise(
+    n_schools = sum(!is.na(abs_change)),
+    broom::tidy(wilcox.test(abs_change, exact = FALSE, correct = TRUE, conf.int = TRUE)),
+    .by       = c(x, contrast)
+  ) |> 
+  rename(med.change = estimate, med.change.conf.low = conf.low, med.change.conf.high = conf.high) |> 
+  mutate(
+    p.adjust        = p.adjust(p.value, "holm"), 
+    p.adjust.n      = sum(!is.na(p.value)),
+    p.adjust.method = "holm",
+    .after          = p.value,
+    .by             = x
+  )  |> 
+  
+  structure(
+    title       = "Test Change in School Characteristics Over Time",
+    sheetname   = "test_school_char_change",
+    description = "Annual school-level numeric variables (e.g., attendance, % with asthma) were tested for evidence of change over time. For each variable, within-school change was calculated from schoolyear to schoolyear (all pairwise schoolyear comparisons). School-level change between each pair of years was then tested for symmetry around zero (i.e., no change over time) by a one-sample Wilcoxon signed-rank test. p-values for the set of 6 pairwise year comparisons for each variable were adjusted by the Holm method."
+  ) |>
+  
+  write_table("test_school_chars_by_sy.rds")
+```
+
+
+```{r}
+# Describe School Chars (2023-2024) by Inhaler Events ---------------------
+
+# any events, 2023-2024 only, separating late implementers
+school_tby(
+  y_var = "any_events_l3",
+  df    = read_rds(nested_here("data", "analytic_school_lvl.rds")) |> 
+    filter(data_schoolyear %in% c("2023-2024")),
+  tby_ctrl = arsenal::tableby.control(
+    test           = FALSE,
+    digits.n	      = NA,
+    numeric.stats  = c("medianrange", "q1q3",  "meansd")
+  ),
+) |> 
+  
+  structure(
+    title       = "School Characteristics by Leven of Inhaler Utilization, SY 2023-2024",
+    sheetname   = "descr_util_groups_23_24",
+    description = "Summary statistics of school-level characteristics and demographics in the 2023-2024 schoolyear. Schools are grouped by inhaler utilization level in the 2023-2024 school year (0 events vs. 1+ events vs. N/A).") |> 
+  
+  write_table("school_chars_by_util.rds")
+
+
+# test assn between school chars and school-level utilization
+full_join(
+  
+  c("grade_level", "region_3grp",  "region_2grp" ) |> 
+    set_names() |> 
+    map_dfr(~{
+      test_categ(.x, groups = "any_events_l3", data = read_df_sy("2023-2024"))
+    }, .id = "x"),
+  
+  c("student_count", "average_attendance", 
+    grep("pct", names(read_df_sy("2023-2024")), value = TRUE)) |> 
+    set_names() |>  
+    map_dfr(~{
+      test_ordered(.x, groups = "any_events_l3", data = read_df_sy("2023-2024"))
+    }, .id = "x")
+  
+) |> 
+  mutate(data_schoolyear = "2023-2024", .before = 1) |> 
+  relocate(data_schoolyear, x, x_pair, group1, group2, n, p.value, matches("p.adj")) |> 
+  
+  structure(
+    title       = "Test Differences in School Characteristics by Level of Inhaler Utilization, SY 2023-2024",
+    sheetname   = "test_util_group_diffs_23_24",
+    description = "Three-group and pairwise comparisons of school characteristics by inhaler utilization level in the SY 2023-2024 schoolyear. Numeric variables are compared across groups (0 events, 1+ events, NA) by Kruskal-Wallis tests (all 3 groups) and pairwise Wilcoxon rank-sum tests (each pair of 2 groups). Categorical variables (e.g., grade level) are compared across groups (0 events, 1+ events, NA) Fisher's exact tests (all 3 groups and each pair of 2 groups). p-values for the set of three pairwise comparisons for each variable were adjusted by the Holm method.") |> 
+  
+  write_table("test_school_chars_by_util.rds")
+
+```
+
+
+
+
+
+```{r}
+ipw::ipwtm(
+  exposure = n_inh_rate,
+  family = "ordinal",
+  link = "logit",
+  numerator = ~ 1,
+  denominator = ~ data_schoolyear + program_sy_days + grade_level + wave +
+    splines::ns(pct_student_race_american_indian) +
+    splines::ns(pct_student_race_asian_hawaiian_pacific_islander),
+  id = school_id,
+  data = ipw_data,
+  timevar = as.numeric(data_schoolyear),
+  type = "all"
+  )
+```
+
+
+
+after https://www.andrewheiss.com/blog/2020/12/01/ipw-binary-continuous/
+
+(cross-sectional) iptw: 
+
+numer_mod = glm(util ~ 1, data = data)
+numer = dnorm(data$util, predict(numer_nod), sd = numer_mod$residuals)
+
+denom_mod = glm(util ~ demog + asthma, data = data)
+denom = dnorm(data$util, predict(denom_nod), sd = denom_mod$residuals)
+
+data$ipw = numer / denom
+attendance_mod = glm(attendance ~ util, data = data, weights = ipw)
+
+alt: use ipw::ipwpoint()
+
+
+
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Describe School Chars by Year
+
+```{r, eval = FALSE}
+# source(nested_here("R", "DESCRIBE_SCHOOLS.R"))
+```
+
+Results preview:
+
+```{r}
+find_written_fnames(nested_here("R", "DESCRIBE_SCHOOLS.R")) |> 
+  read_table() |> 
+  map(head, 10) |> 
+  map(knitr::kable, digits = 3) |> 
+  walk(print)
+```
+
+
+# Utilization Detail
+
+```{r}
+tableby_with <- function(df, ...) {
+  arsenal::tableby(
+    ...,
+    data = df
+    )
+}
+```
+
+```{r, eval = FALSE}
+source(nested_here("R", "DESCRIBE_UTILIZATION.R"))
+```
+
+```{r}
+find_written_fnames(nested_here("R", "DESCRIBE_UTILIZATION.R")) |> 
+  read_table() 
+```
+
+
+
+
+What predicts utilization? Poisson (or similar) for inhaler uses, 
+with a student-time (in program) offset. 
+Adjust for school-level chars. 
+
+- [ ] tabulate uses per school per year
+
+```{r}
+
+```
+
+
+
+```{r}
+util_ct_w_offset <- left_join(
+  read_rds(nested_here("data", "analytic_school_lvl.rds")),
+  read_rds(nested_here("data", "mrg_inhaler_events.rds")) |> 
+    count(school_id, data_schoolyear, name = "n_incidents"),
+  by = c("school_id", "data_schoolyear")
+  ) |> 
+  left_join(
+    read_rds(nested_here("data", "pre_school_year_dates.rds")) |> 
+      filter(season != "summer") |> 
+      summarise(
+        data_date = max(end),
+        sy_startdate = min(start),
+        sy_enddate = data_date,
+        .by = data_schoolyear
+        ),
+    by = "data_schoolyear"
+    ) |> 
+  filter(!is.na(student_count)) |> 
+  relocate(matches("date")) |> 
+  rowwise() |> 
+  mutate(
+    n_incidents        = coalesce(n_incidents, 0),
+    sy_days = as.numeric(difftime(sy_enddate, sy_startdate, units = "days")),
+    impl_days_cum = max(
+      0,
+      as.numeric(difftime(data_date, impl_date, units = "days"))
+      ),
+    impl_days_sy = min(sy_days, impl_days_cum),
+    
+    studentdays_sy         = sy_days*student_count,
+    impl_studentdays_sy    = impl_days_sy*student_count,
+    n_inc_per_1k_impl_studays = (n_incidents / impl_studentdays_sy)*1000,
+    n_inc_per_1k_studays      = (n_incidents / studentdays_sy)*1000,
+    .before                = 1
+    ) |> 
+  ungroup() 
+  
+util_ct_w_offset |> arrange(desc(n_inc_per_1k_studays))
+```
+
+
+
+
+
+
+- [ ] calculate student-program-time per school per year 
+      (time btw program implementation and end of school year)
+- [ ] calculate use rate per school per year
+- [ ] plot 
+    - [ ] scatter: rate over time by impl date
+- [ ] model uses (count with student-time offset) 
+      as predicted by school demographics,
+      school characteristics, calendar time (school year), time in program
+
+Categorize schools by rate of utilization (quartiles). Categorize 
+schools by outcome rates (quartiles). Tabulate, plot by year. 
+
+
+# Student Outcomes
+
+
+Describe trends in student outcomes (student group level) 
+over time (asthma, 504 plans, ieps, attendance).
+Allow for demog-by-outcome interaction terms.
+
+
+# Outcomes x Utilization
+
+
+Latent class analysis/latent transition analysis. Categorize by low/high utilizers 
+and low/high need. 
+
+Describe trends in outcomes as predicted by time-in-program, utilization 
+(treat as time-varying exposure?). Causal analysis w 
+time-varying covariates (confounders): use IPTW for utilization?
+
+
+
+
+
+after https://www.andrewheiss.com/blog/2020/12/01/ipw-binary-continuous/
+
+(cross-sectional) iptw: 
+
+numer_mod = glm(util ~ 1, data = data)
+numer = dnorm(data$util, predict(numer_nod), sd = numer_mod$residuals)
+
+denom_mod = glm(util ~ demog + asthma, data = data)
+denom = dnorm(data$util, predict(denom_nod), sd = denom_mod$residuals)
+
+data$ipw = numer / denom
+attendance_mod = glm(attendance ~ util, data = data, weights = ipw)
+
+alt: use ipw::ipwpoint()
+
+# Write Results
+
+```{r}
+out_tables <- list(
+  About = t(data.frame(
+    Date   = Sys.Date(),
+    Author = "Rachel Lane",
+    Title  = "SOW 2 Tables"
+  )) |> 
+  as.data.frame() |> 
+  set_names("value") |> 
+  rownames_to_column("name")
+  )
+out_tables[["About"]] <- rbind(
+  out_tables[["About"]],
+  params |> 
+    keep_at(~ grepl("raw", .x)) |> 
+    set_names_from_child("clean_name") |> 
+    map_dfr(~data.frame(
+      name = "Data Sources",
+      value = glue::glue("File: {.x$file}. Sheet: {coalesce(.x$sheet, '1')}. Box file ID: {.x$box_id}")
+      )))
+
+```
+
+```{r}
+for (f in list.files(
+  nested_here("output", "tables"),
+  "sow3"
+  )) {
+  d <- read_rds(nested_here("output", "tables", f))
+  out_tables[[attr(d, "sheetname")]] <- d
+  out_tables$About <- out_tables$About |> 
+    add_case(
+      name = "Contents",
+      value = glue::glue('Sheet: {attr(d, "sheetname")}. Title: {attr(d, "title")}. Description: {attr(d, "description")}')
+    )
+  }
+
+```
+
+```{r}
+openxlsx::write.xlsx(
+  out_tables,
+  nested_here("output", paste0("sow3_tables_", Sys.Date(), ".xlsx")),
+  asTable = TRUE
+)
+```
+
+

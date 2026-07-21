@@ -1,0 +1,781 @@
+---
+title: "CPS Longitudinal - Analytic Plan"
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+params:
+  parent_dir: "a12_cps_data" # relative to project root
+  version: "2026-05-05"
+bibliography: "refs.bib"
+knit: |
+  (function(input, ...) {
+      rmarkdown::render(
+        input, 
+        output_file   = paste0("33753_sow3_analytic_plan_", Sys.Date()),
+        output_dir    = file.path(dirname(input), "output"),
+        envir         = globalenv()
+      )
+  })
+---
+
+
+
+
+# Missing Data
+
+@King2008 offers an example of using complete reference data to infer 
+missnig categorical characteristics. Distributions of both 
+outcome variables and indicator variables may differ in the observed (complete)
+and inferred (incomplete) subpopulations. 
+
+In the @King2008, treat the cause-of-death value of interest [P(D)] as 
+multinomial. Estimate, e.g., probability of each 
+symptom profile (fully observed var) given observed cause of death (partially observed var):
+
+P(S) = P(S|D)P(D)
+
+Assume P(S|D) are the same across subpopulations. Don't assume P(S), P(D),
+or P(D|S) are the same. Tabulate observed values nonparametrically
+and solve for P(D). Use samples of symptoms, solve, and average. [Applicable
+to uninferrable xtabs?]
+
+
+
+
+
+
+
+
+```{r}
+library(tidyverse)
+library(lme4)
+# function for easier navigation of relative refs
+nested_here <- function(
+    ...,    
+    parent_dir = params$parent_dir, 
+    version    = params$version
+    ) {
+    here::here(parent_dir, version, ...)
+}
+```
+
+```{r}
+
+```
+
+```{r}
+read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  summarise(
+    n = sum(student_count),
+    .by = c(school_id, data_schoolyear, student_race)
+  ) |> 
+  filter(!is.na(student_race)) |> 
+  
+  filter(school_id == first(school_id)) |> 
+  pivot_wider(
+    names_from = data_schoolyear,
+    values_from = n, 
+    id_cols = student_race,
+    values_fill = 0
+  ) |> 
+  column_to_rownames("student_race") |> 
+  as.matrix() |> 
+  chisq.test()
+```
+
+```{r}
+read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  pivot_longer(
+    matches("student_504"),
+    values_to = "n",
+    names_to  = "y_level"
+    ) |> 
+  filter(n > 0) |> 
+  summarise(
+    n   = sum(n), 
+    .by = c(
+      school_id, data_schoolyear, 
+      asthma_status, y_level, 
+      student_race, student_gender
+      )
+    ) |> 
+  mutate(
+    p_obs        = case_when(!is.na(student_race) ~ n / sum(n)),
+    n_missing    = sum(n*is.na(student_race)),
+    n_nonmissing = sum(n*!is.na(student_race)),
+    .by          = c(
+      school_id, data_schoolyear, 
+      asthma_status, y_level, 
+      student_gender
+      )
+    ) |> 
+  filter(!is.na(student_race))  |>
+  arrange(
+    school_id, data_schoolyear, 
+    asthma_status, y_level, 
+    student_gender, student_race
+    ) |> 
+  
+  mutate(
+    n_imp = c(
+      rmultinom(
+        n = 1,
+        size = first(n_missing),
+        prob = p_obs
+      )),
+    .by = c(school_id, data_schoolyear, asthma_status, y_level)
+  ) |> 
+  
+  mutate(n = n + n_imp) #|> 
+  pivot_wider(
+    names_from = 
+  )
+  # 
+  # pivot_wider(
+  #   names_from = data_schoolyear,
+  #   values_from = c(n_missing, p_nodem),
+  #   # values_fill = 0,
+  #   id_cols = c(school_id, asthma_status, y_level,  student_gender, student_race)
+  #   ) |> 
+  pivot_wider(
+    names_from = student_race,
+    values_from = p_obs,
+    
+    id_cols = c(school_id, asthma_status, y_level, data_schoolyear, n_nonmissing, n_missing)
+  ) |> 
+  arrange(school_id, asthma_status, y_level, data_schoolyear) 
+  
+  mutate(
+    p_gender_g_row = n / sum(n), 
+    .by = c(school_id, data_schoolyear,
+            asthma_status, y_level,
+            student_race)
+    ) |> 
+  mutate(
+    p_race_g_row = n / sum(n), 
+    .by = c(school_id, data_schoolyear,
+            asthma_status, y_level,
+            student_gender)
+    )
+
+
+```
+
+
+```{r}
+df1 <- read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  select(-student_count) |>  
+  pivot_longer(
+    matches("student_504"),
+    values_to = "student_count",
+    names_to  = "y_level"
+    ) |> 
+  pivot_wider(
+    names_from = student_gender,
+    values_from = student_count,
+    values_fill = 0,
+    id_cols = c(
+      school_id, data_schoolyear, student_race,
+      asthma_status, y_level
+      )
+  ) |> 
+  janitor::clean_names() |> 
+  mutate(
+    n_obs = female + male + non_binary
+    ) |> 
+  filter(n_obs > 0) |> 
+  mutate(across(where(negate(is.numeric)), as.factor))
+```
+
+
+```{r}
+pred_m <- glmer(
+  cbind(male, I(n_obs - male)) ~ 
+    student_race + data_schoolyear + asthma_status + y_level + (1 | school_id),
+  data   = droplevels(na.omit(df1)),
+  family = binomial(link = "logit")
+  )
+```
+
+```{r}
+mod_gender_df <- read_rds(nested_here("data", "analytic_student_lvl.rds")) |>
+    select(-student_count) |>  
+    pivot_longer(
+      matches("student_504"),
+      values_to = "student_count",
+      names_to  = "y_level"
+      ) |> 
+    mutate(
+      student_race = fct_na_value_to_level(student_race, "Missing")
+      ) |> 
+    filter(!is.na(student_gender))
+
+library(mclogit)
+mod_gender <- mclogit(
+  student_count|student_gender ~ data_schoolyear + asthma_status + student_race + y_level,
+  random = ~ 1 | school_id,
+  data = group_nest(school_id)mod_gender_df
+)
+```
+
+
+```{r}
+pred_f <- glmer(
+  cbind(female, I(n_total - female)) ~ 
+        student_race + data_schoolyear + asthma_status + y_level + (1 | school_id),
+  data   = droplevels(na.omit(df1)),
+  family = binomial(link = "logit")
+  )
+```
+
+```{r}
+rmult_gender <- function(n_unobs, Female, Male, `Non-Binary`, ...) {
+    data.frame(
+      ...,
+      student_count = rmultinom(
+        n    = 1,
+        size = n_unobs,
+        prob = c("Female" = Female, "Male" = Male, "Non-Binary" = `Non-Binary`)
+        )
+      ) |> 
+      rownames_to_column("student_gender")
+}
+```
+
+
+```{r}
+gender_missing <- read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  select(-student_count) |> 
+  pivot_longer(
+    matches("student_504"),
+    values_to = "student_count",
+    names_to  = "y_level"
+    ) |> 
+  pivot_wider(
+    names_from  = student_gender,
+    values_from = student_count,
+    values_fill = 0,
+    id_cols = c(
+      school_id, data_schoolyear, student_race, asthma_status, y_level)
+    ) |> 
+  filter(!is.na(student_race))
+gender_missing$pred_m <- predict(
+  pred_m,
+  newdata = gender_missing,
+  type = "response"
+  )
+gender_missing$pred_f <- predict(
+  pred_f,
+  newdata = gender_missing,
+  type = "response"
+  )
+```
+
+
+```{r}
+gender_imputed <- gender_missing |> 
+  mutate(
+    pred_total = pred_m + pred_f,
+    pred_nb    = case_when(pred_total < 1 ~ (1 - pred_total), .default = 0.0000001)
+    ) |> 
+  janitor::clean_names() |> 
+  # filter(na > 0) |>
+  transpose() |> 
+  map_dfr(~{
+    n_addl <- c(rmultinom(
+        n    = 1,
+        size = .x[["na"]],
+        prob = .x[c("pred_m", "pred_f", "pred_nb")]
+        )
+      ) |> set_names(c("male", "female", "non_binary"))
+    data.frame(.x) |>
+      mutate(
+        Male         = male + n_addl[["male"]],
+        Female       = female + n_addl[["female"]],
+        `Non.Binary` = `non_binary` + n_addl[["non_binary"]]
+      )
+
+  })
+
+gender_imputed |> 
+  pivot_longer(
+    c(Male, Female, Non.Binary), 
+    values_to = "student_count",
+    names_to = "student_gender"
+    ) |> 
+  pivot_wider(
+    names_from = y_level,
+    values_from = student_count,
+    id_cols = c(school_id, data_schoolyear, student_race, asthma_status)
+  )
+  head()
+```
+
+
+```{r}
+rmult_gender <- function(n_unobs, Female, Male, `Non-Binary`, ...) {
+    data.frame(
+      ...,
+      student_count = rmultinom(
+        n    = 1,
+        size = n_unobs,
+        prob = c("Female" = Female, "Male" = Male, "Non-Binary" = `Non-Binary`)
+        )
+      ) |> 
+      rownames_to_column("student_gender")
+}
+```
+
+
+```{r}
+# for a single outcome, fill in missing covariate values
+
+allocate_missing <- function(df, y = "student_504_count", x = "student_gender") {
+  imputed <- df |> 
+    select(-student_count) |> 
+    pivot_longer(
+      matches(y),
+      values_to = "student_count",
+      names_to  = "y_level"
+      ) 
+  
+  imputed[["x_level"]] <- imputed[[x]]
+
+  imputed <- imputed |> 
+    mutate(
+      n_obs   = sum(student_count*(!is.na(x_level))),
+      n_unobs = sum(student_count*(is.na(x_level))),
+      p_obs   = coalesce(student_count / (n_obs), 0),
+      .by     = all_of(setdiff(
+        c("school_id", "data_schoolyear", "student_race", "student_gender",
+          "asthma_status", "y_level"),
+        x))
+      ) 
+  return(imputed)
+  #|> 
+    filter(!is.na(x_level)) |> 
+    filter(n_unobs > 0) |>
+    # filter(p_obs > 0) |> 
+    group_nest(
+      across(all_of(setdiff(
+        c("school_id", "data_schoolyear", "student_race", "student_gender",
+          "asthma_status", "y_level", "n_unobs"
+          ), x
+        )))
+      ) |> 
+  mutate(
+    n_rand = map2(n_unobs, data, possibly(~{
+      data.frame(
+        student_count = rmultinom(
+          n    = 1,
+          size = .x,
+          prob = set_names(.y$p_obs, .y[[x]])
+          )) |> 
+        rownames_to_column(x)
+      }, otherwise = data.frame(
+        student_gender = "Undefined",
+        student_count = -Inf
+        )
+      ))
+    ) |> 
+    unnest(n_rand) |> 
+    mutate(
+      student_count = case_when(
+        student_gender == "Undefined" ~ n_unobs,
+        .default = student_count
+        )
+      ) |> 
+    pivot_wider(
+      values_from = student_count,
+      names_from = y_level,
+      values_fill = 0,
+      id_cols = c("school_id", "data_schoolyear", "student_race", "student_gender",
+          "asthma_status", "n_unobs")
+      
+    )
+  # return(imputed)
+  full_join(
+    df[which(!is.na(df[[x]])),intersect(names(df), names(imputed))],
+    imputed
+    ) |>
+    arrange(school_id, data_schoolyear)
+}
+```
+
+
+```{r}
+read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  select(matches("student_504_count")) |> 
+  colSums()
+```
+
+
+```{r}
+list("iep_count", "student_504_count") |> 
+  map(~{
+    read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+      allocate_missing(y = .x)
+    }) 
+
+```
+
+
+```{r}
+#|> 
+  filter(n_unobs > 0) |> 
+  filter(p_obs > 0) |> 
+  group_nest(
+     school_id, data_schoolyear, student_race, asthma_status, y_level, n_unobs
+     ) |> 
+  mutate(
+    n_rand = map2(n_unobs, data, ~{
+      data.frame(
+        student_count = rmultinom(
+          n    = 1,
+          size = .x,
+          prob = set_names(.y$p_obs, .y[["student_gender"]])
+          )) |> 
+        rownames_to_column("student_gender")
+      }), .keep = "unused") |> 
+  unnest(n_rand)
+```
+
+
+```{r}
+|> 
+    pivot_wider(
+      names_from  = x_level,
+      values_from = p_obs,
+      id_cols     = c(school_id, data_schoolyear, student_race, asthma_status, y_level,
+                  n_gender_obs, n_gender_unobs),
+      values_fill = 0
+    ) |>
+    filter(n_unobs > 0) |> 
+    head() |> 
+    pmap_dfr(allocate_gender) |> 
+    
+    pivot_wider(
+      names_from  = y_level,
+      values_from = student_count,
+      id_cols     = c(school_id, data_schoolyear, student_race, asthma_status, student_gender)
+    )
+}
+```
+
+
+```{r}
+df |> 
+  select(school_id, data_schoolyear, student_gender, student_race, asthma_status,
+         student_504_count_yes, student_504_count_no) |> 
+  pivot_longer(
+    matches("count"),
+    values_to = "student_count",
+    names_to  = "x504_status"
+    ) |> 
+  
+  mutate(
+    n_gender_obs   = sum(student_count*(!is.na(student_gender))),
+    n_gender_unobs = sum(student_count*(is.na(student_gender))),
+    p_gender       = student_count / n_gender_obs,
+    .by            = c(school_id, data_schoolyear, student_race, asthma_status, x504_status)
+  ) |> 
+  filter(!is.na(student_gender)) |> 
+  pivot_wider(
+    names_from  = student_gender,
+    values_from = p_gender,
+    id_cols     = c(school_id, data_schoolyear, student_race, asthma_status, x504_status,
+                n_gender_obs, n_gender_unobs),
+    values_fill = 0
+  ) |>
+  filter(n_gender_unobs > 0) |> 
+  head() |> 
+  pmap_dfr(allocate_gender) |> 
+  
+  pivot_wider(
+    names_from  = x504_status,
+    values_from = student_count,
+    id_cols     = c(school_id, data_schoolyear, student_race, asthma_status, student_gender)
+  )
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+stratified by year:
+
+limit to schools with complete data on sex.
+
+for each outcome: pivot to long
+```{r K, echo = FALSE, include = FALSE}
+# define document options
+knitr::opts_chunk$set(
+  echo    = FALSE, eval    = TRUE, 
+  message = FALSE, warning = FALSE
+  )
+```
+
+```{r, include = FALSE}
+# load libraries
+library(tidyverse)
+```
+
+```{r chunk_opts, echo = FALSE, include = FALSE}
+# define formatting options
+options(knitr.kable.NA = '')
+thm <- theme_set(theme_bw())
+```
+
+```{r}
+# function for easier navigation of relative refs
+nested_here <- function(
+    ...,    
+    parent_dir = params$parent_dir, 
+    version    = params$version
+    ) {
+    here::here(parent_dir, version, ...)
+}
+```
+
+
+P(S) = P(S|D)P(D)
+
+P(race,asthma,504) = P(race,asthma,504|sex)*P(sex)
+
+```{r}
+# estimate p(vars) (fully observed)
+head(p_vars <- read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  # filter(sum(is.na(student_gender))>0, .by = school_id) |> 
+  # filter(as.numeric(factor(school_id)) == 1) |> 
+  mutate(n_total = sum(student_count), .by = c(school_id, data_schoolyear)) |> 
+  pivot_longer(
+    matches("student_504_count"), 
+    names_to  = "y_level", 
+    values_to = "n"
+    ) |> 
+  summarise(
+    n_row = sum(n), 
+    .by   = c(
+      school_id, data_schoolyear, n_total,
+      student_race, asthma_status, y_level
+      )
+    ) |> 
+  mutate(
+    p_row = n_row / sum(n_row), 
+    .by   = c(school_id, data_schoolyear, n_total)
+  ))
+```
+
+```{r}
+
+library(mclogit)
+
+mblogit(formula = Opponent2 ~ Ethnicity2 + Rank2 + Opp_rank2, random = list(~1|Athlete2, ~ 1|Date2), data = data, method=c("PQL"), estimator=c("ML"))
+```
+
+```{r}
+p_vars |> slice(100) |> left_join(p_vars_g_sex, by = c("school_id", "data_schoolyear", "student_race", "asthma_status", "y_level"))
+```
+
+
+
+
+
+```{r}
+
+# for each sex level...
+p_vars_g_sex <- levels(read_rds(nested_here("data", "analytic_student_lvl.rds")) |> pull("student_gender")) |> 
+  set_names() |> 
+  map_dfr(~{
+    # estimate p(vars|sex) using observed data only
+    read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+      filter(sum(is.na(student_gender))>0, .by = c(school_id, data_schoolyear)) |>
+      mutate(
+        gender_bin = case_when(student_gender == .x ~ "sex", .default = "not_sex")
+      ) |> 
+      # filter(as.numeric(factor(school_id)) == 1) |> 
+      pivot_longer(
+        matches("student_504_count"), 
+        names_to  = "y_level", 
+        values_to = "n"
+        ) |> 
+      summarise(
+        n_row_if = sum(n), 
+        .by = c(
+          school_id, data_schoolyear, gender_bin,
+          student_race, asthma_status, y_level
+          )
+        ) |> 
+      mutate(
+        p_row_if = n_row_if / sum(n_row_if), 
+        .by = c(school_id, data_schoolyear, gender_bin)
+        )
+  }, .id = "student_gender")
+
+```
+
+
+P(race,asthma,504) = P(race,asthma,504|sex)*P(sex)
+
+
+
+```{r}
+p_vars_g_sex|> 
+  pivot_wider(
+    names_from  = gender_bin,
+    values_from = c(n_row_if, p_row_if),
+    values_fill = 0
+  ) |> 
+  left_join(
+    p_vars, 
+    by = c("school_id", "data_schoolyear", "student_race", "asthma_status", "y_level")
+    ) |> 
+  mutate(
+    p_sex = (p_row - p_row_if_not_sex) / 
+            (p_row_if_sex - p_row_if_not_sex),
+    p_sex_g_row = p_sex / p_row
+      
+    )
+
+```
+
+
+
+```{r}
+df <- read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  pivot_longer(
+    matches("student_504_count"), 
+    names_to  = "y_level", 
+    values_to = "n"
+    ) |> 
+  # filter(!is.na(student_gender)) |> 
+  summarise(
+    n_row_if_sex = sum(n), .by = c(
+      school_id, data_schoolyear, student_gender,
+      student_race, asthma_status, y_level
+      )
+    ) |> 
+  mutate(
+    n_row_total = sum(n_row_if_sex*(!is.na(student_gender))),
+    .by = c(
+      school_id, data_schoolyear, 
+      student_race, asthma_status, y_level
+      )
+    ) |> 
+  
+  filter(n_row_total > 0) |> 
+  # filter(!grepl("Middle", student_race)) |> 
+  droplevels()
+library(lme4)
+pred1 <- glmer(
+  n_row_if_sex ~ student_race + data_schoolyear + (
+    student_gender + asthma_status + y_level
+    )^2 + (1 | school_id),
+  data   = na.omit(df),
+  family = poisson(link = "log"),
+  offset = log(n_row_total)
+)
+```
+
+
+
+
+
+
+
+
+
+```{r}
+head(imp_test <- read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  filter(as.numeric(data_schoolyear) == 1) |> 
+  droplevels())
+```
+
+
+
+
+```{r}
+df$pred1 <- predict(pred1, newdata = df, type = "response")
+
+df |> 
+  ggplot(aes(n_row_if_sex, pred1)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0)
+
+
+df |>
+  filter(sum(is.na(student_gender)) > 0, .by = c(school_id, data_schoolyear)) |> 
+  relocate(n_row_if_sex, n_row_total, pred1) |> 
+  mutate(p_actual = n_row_if_sex / sum(n_row_if_sex),
+         p_pred1 = pred1 / sum(pred1, na.rm = TRUE),
+         .by = c(school_id, data_schoolyear, 
+         student_race, asthma_status, y_level),
+         .after = pred1
+         ) |> 
+  
+  ggplot(aes(p_actual, p_pred1)) +
+  geom_point()
+```
+
+
+
+P(race,asthma,504) = P(race,asthma,504|sex)*P(sex)
+p(sex_i) = P(race,asthma,504) / P(race,asthma,504|sex_i)
+
+```{r}
+full_join(
+  p_vars,
+  p_vars_g_sex,
+  by = c("school_id", "data_schoolyear", "student_race", "asthma_status",
+"y_level")
+) |> 
+  mutate(
+    n_row_if_notsex = n_row - n_row_if_sex,
+    p_row_if_notsex = n_row_if_notsex / sum(n_row_if_notsex),
+    .by = c(school_id, data_schoolyear, I(student_gender == student_gender))
+    )
+  select(-n_row_if_sex) |> 
+  pivot_wider(
+    names_from   = student_gender,
+    values_from  = p_row_if_sex,
+    names_prefix = "p_row_if_",
+    values_fill  = 0
+  ) |> 
+  
+  mutate(
+    p_female = (p_row - p_row_if_Male)/ (p_row_if_Female - p_row_if_Male),
+    p_male   = (p_row - p_row_if_Female)/ (p_row_if_Male - p_row_if_Female),
+    p_total  = (p_female + p_male)
+    )
+  
+  
+```
+
+
+```{r}
+p_vars_g_sex |> 
+  pivot_wider(
+    names_from = student_gender,
+    names_prefix = "p_vars_gvn_",
+    values_from = p,
+    id_cols = c(school_id, data_schoolyear,
+                student_race, asthma_status, y_level),
+    values_fill = 0
+    ) |> 
+  
+  full_join(
+    p_vars,
+    by = c("school_id", "data_schoolyear", "student_race", "asthma_status",
+"y_level")
+  )
+
+```
+

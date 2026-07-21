@@ -1,0 +1,388 @@
+---
+title: "CPS Data Summary: Longitudinal Outcomes"
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+params:
+  parent_dir: "a12_cps_data" # relative to project root
+  version: "2026-04-16" 
+  raw_data_cps:
+    value:
+      file: "UIC Asthma Status Data Albuterol SoW Shell_07252025.xlsx"
+      sheet: "SY22, 23, 24 and 25 Asthma Stat"
+      box_id: '1938297974039'
+      clean_name: "student_counts"
+  raw_data_schools_metadata:
+    value: 
+      file: "CPS Schools CCAs Regions.xlsx"
+      sheet: NULL
+      box_id: '2071252778107'
+      clean_name: "schools"
+  raw_data_utilization:
+    # value:
+    #   file: "CPS 2023-2025 utilization recode.xlsx"
+    #   sheet: "Sheet1"
+    #   box_id: '2017350498669'
+    #   clean_name: "inhaler_events"
+    value: # added 2026-03-25
+      file: "CPS 2023-2025 utilization recode_3-23.xlsx"
+      sheet: "Utilization Data"
+      box_id: '2173811730030'
+      clean_name: "inhaler_events"
+      # force_preproc: TRUE
+  raw_data_waves: # added 2026-01-21
+    value:
+      file: "CPS Ramp Up School List_MostUpdated.xlsx"
+      sheet: "Sheet1"
+      box_id: "2109640911794"
+      clean_name: "waves"
+  raw_sy_dates: # added 2026-03-04
+    value:
+      box_id: "2154041346707"
+      file: "schoolyear_dates.xlsx"
+      sheet: "Sheet1"
+      clean_name: "school_year_dates"
+      # force_preproc: true
+  enrollment_count_files: # box ids
+    value: 
+      sy_22: "2154049626576"
+      sy_23: "2154041838698"
+      sy_24: "2154043506963"
+      sy_25: "2154043912572"
+      sy_26: "2154047037077"
+  force_preproc: FALSE
+knit: |
+  (function(input, ...) {
+      rmarkdown::render(
+        input, 
+        output_file   = paste0("33753_cps_data_", Sys.Date()),
+        output_dir    = file.path(dirname(input), "output"),
+        envir         = globalenv()
+      )
+  })
+---
+
+```{r K, echo = FALSE, include = FALSE}
+# define document options
+knitr::opts_chunk$set(
+  echo    = FALSE, eval    = TRUE, 
+  message = FALSE, warning = FALSE
+  )
+```
+
+```{r, include = FALSE}
+# load libraries
+library(tidyverse)
+```
+
+```{r chunk_opts, echo = FALSE, include = FALSE}
+# define formatting options
+options(knitr.kable.NA = '')
+thm <- theme_set(theme_bw())
+```
+
+```{r}
+# function for easier navigation of relative refs
+nested_here <- function(
+    ...,    
+    parent_dir = params$parent_dir, 
+    version    = params$version
+    ) {
+    here::here(parent_dir, version, ...)
+}
+```
+
+```{r}
+# (maybe) create subdirectories for code, data, output
+walk(nested_here(c("R", "data", "output", "output/tables")), ~{
+  if(!dir.exists(.x)) {dir.create(.x, recursive = TRUE)}
+  })
+
+# load external functions
+list.files(nested_here("R"), "fx.R$", full.names = TRUE) |> 
+  walk(source)
+```
+
+
+# Data Processing
+
+## Process and Merge Raw Data Files
+
+```{r, include = FALSE}
+# for each raw data source...
+regen_files <- params |> 
+  keep_at(~ grepl("raw", .x)) |> 
+  set_names_from_child("clean_name") |> 
+  imap(~{
+    .x |> list_assign(
+      f_name         = nested_here("data", paste0("pre_", .y, ".rds")),
+      force_preproc  = coalesce(
+        .x |> 
+          pluck("force_preproc"), 
+        params$force_preproc
+        )
+      )
+  }) |> 
+  
+  # if any doesn't exist or needs forced regeneration...
+  keep(~ (!file.exists(.x$f_name) | .x$force_preproc)) |> 
+  
+  # process and write to file
+  map(~{fetch_and_preproc(.x) |>  write_rds(.x$f_name)})
+
+
+# make school name/id crosswalk 
+# multiple source files: params$enrollment_count_files
+
+if(params$force_preproc | 
+   !file.exists(nested_here("data", "pre_school_ids.rds"))) {
+
+  params$enrollment_count_files |> 
+    imap(~{
+      list(
+        box_id     = .x,
+        sheet      = 1,
+        clean_name = gsub("sy", "school_enrollment", .y)
+        )
+      }) |>
+    map_dfr(fetch_and_preproc) |>
+    write_rds(nested_here("data", "pre_school_ids.rds"))
+  
+  regen_files <- rlist::list.append(
+    "pre_school_ids" = list(f_name = nested_here("data", "pre_school_ids.rds"))
+  )
+}
+
+# (maybe) re-merge files
+if(length(regen_files) > 0) {
+  source(nested_here("R", "MERGE.R"))
+  }
+```
+
+```{r}
+
+```
+
+
+```{r, eval = FALSE}
+# checks
+
+# should be equivalent:
+read_rds(nested_here("data", "mrg_inhaler_events.rds")) |>
+    count(data_schoolyear)
+
+read_rds(nested_here("data", "mrg_school_lvl_event_counts.rds")) |>
+    summarise(n = sum(n_events), .by = data_schoolyear)
+read_rds(nested_here("data", "mrg_school_lvl_student_counts.rds"))
+
+head(read_rds(nested_here("data", "analytic_school_lvl.rds")))
+
+
+# check: schools with cps data per year
+read_rds(nested_here("data", "analytic_school_lvl.rds")) |>
+    mutate(cps_data = !is.na(student_count)) |>
+    select(data_schoolyear, cps_data) |>
+    table()
+
+# check: inhaler events by year
+read_rds(nested_here("data", "analytic_school_lvl.rds")) |>
+    summarise(sum(n_events), .by = data_schoolyear)
+
+# check: inhaler events by year, with late implementers as separate category
+read_rds(nested_here("data", "analytic_school_lvl.rds")) |>
+    summarise(sum(n_events), .by = c(impl_schoolyear, data_schoolyear, any_events_l3)) |>
+    arrange(impl_schoolyear, data_schoolyear)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+# Describe School Chars by Year
+
+```{r, eval = FALSE}
+source(nested_here("R", "DESCRIBE_SCHOOLS.R"))
+```
+
+Results preview:
+
+```{r}
+find_written_fnames(nested_here("R", "DESCRIBE_SCHOOLS.R")) |> 
+  read_table() |> 
+  map(head, 10) |> 
+  map(knitr::kable, digits = 3) |> 
+  walk(print)
+```
+
+
+# Utilization Detail
+
+```{r}
+tableby_with <- function(df, ...) {
+  arsenal::tableby(
+    ...,
+    data = df
+    )
+}
+```
+
+```{r, eval = FALSE}
+source(nested_here("R", "DESCRIBE_UTILIZATION.R"))
+```
+
+```{r}
+find_written_fnames(nested_here("R", "DESCRIBE_UTILIZATION.R")) |> 
+  read_table() 
+```
+
+
+
+
+What predicts utilization? Poisson (or similar) for inhaler uses, 
+with a student-time (in program) offset. 
+Adjust for school-level chars. 
+
+- [ ] tabulate uses per school per year
+
+```{r}
+
+```
+
+
+
+```{r}
+util_ct_w_offset <- left_join(
+  read_rds(nested_here("data", "analytic_school_lvl.rds")),
+  read_rds(nested_here("data", "mrg_inhaler_events.rds")) |> 
+    count(school_id, data_schoolyear, name = "n_incidents"),
+  by = c("school_id", "data_schoolyear")
+  ) |> 
+  left_join(
+    read_rds(nested_here("data", "pre_school_year_dates.rds")) |> 
+      filter(season != "summer") |> 
+      summarise(
+        data_date = max(end),
+        sy_startdate = min(start),
+        sy_enddate = data_date,
+        .by = data_schoolyear
+        ),
+    by = "data_schoolyear"
+    ) |> 
+  filter(!is.na(student_count)) |> 
+  relocate(matches("date")) |> 
+  rowwise() |> 
+  mutate(
+    n_incidents        = coalesce(n_incidents, 0),
+    sy_days = as.numeric(difftime(sy_enddate, sy_startdate, units = "days")),
+    impl_days_cum = max(
+      0,
+      as.numeric(difftime(data_date, impl_date, units = "days"))
+      ),
+    impl_days_sy = min(sy_days, impl_days_cum),
+    
+    studentdays_sy         = sy_days*student_count,
+    impl_studentdays_sy    = impl_days_sy*student_count,
+    n_inc_per_1k_impl_studays = (n_incidents / impl_studentdays_sy)*1000,
+    n_inc_per_1k_studays      = (n_incidents / studentdays_sy)*1000,
+    .before                = 1
+    ) |> 
+  ungroup() 
+  
+util_ct_w_offset |> arrange(desc(n_inc_per_1k_studays))
+```
+
+
+
+
+
+
+- [ ] calculate student-program-time per school per year 
+      (time btw program implementation and end of school year)
+- [ ] calculate use rate per school per year
+- [ ] plot 
+    - [ ] scatter: rate over time by impl date
+- [ ] model uses (count with student-time offset) 
+      as predicted by school demographics,
+      school characteristics, calendar time (school year), time in program
+
+Categorize schools by rate of utilization (quartiles). Categorize 
+schools by outcome rates (quartiles). Tabulate, plot by year. 
+
+
+# Student Outcomes
+
+
+Describe trends in student outcomes (student group level) 
+over time (asthma, 504 plans, ieps, attendance).
+Allow for demog-by-outcome interaction terms.
+
+
+# Outcomes x Utilization
+
+
+Latent class analysis/latent transition analysis. Categorize by low/high utilizers 
+and low/high need. 
+
+Describe trends in outcomes as predicted by time-in-program, utilization 
+(treat as time-varying exposure?). Causal analysis w 
+time-varying covariates (confounders): use IPTW for utilization?
+
+
+
+
+# Write Results
+
+```{r}
+out_tables <- list(
+  About = t(data.frame(
+    Date   = Sys.Date(),
+    Author = "Rachel Lane",
+    Title  = "SOW 2 Tables"
+  )) |> 
+  as.data.frame() |> 
+  set_names("value") |> 
+  rownames_to_column("name")
+  )
+out_tables[["About"]] <- rbind(
+  out_tables[["About"]],
+  params |> 
+    keep_at(~ grepl("raw", .x)) |> 
+    set_names_from_child("clean_name") |> 
+    map_dfr(~data.frame(
+      name = "Data Sources",
+      value = glue::glue("File: {.x$file}. Sheet: {coalesce(.x$sheet, '1')}. Box file ID: {.x$box_id}")
+      )))
+
+```
+
+```{r}
+for (f in list.files(
+  nested_here("output", "tables"),
+  "sow3"
+  )) {
+  d <- read_rds(nested_here("output", "tables", f))
+  out_tables[[attr(d, "sheetname")]] <- d
+  out_tables$About <- out_tables$About |> 
+    add_case(
+      name = "Contents",
+      value = glue::glue('Sheet: {attr(d, "sheetname")}. Title: {attr(d, "title")}. Description: {attr(d, "description")}')
+    )
+  }
+
+```
+
+```{r}
+openxlsx::write.xlsx(
+  out_tables,
+  nested_here("output", paste0("sow3_tables_", Sys.Date(), ".xlsx")),
+  asTable = TRUE
+)
+```
+
+

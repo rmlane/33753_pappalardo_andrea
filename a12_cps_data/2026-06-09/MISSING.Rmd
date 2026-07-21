@@ -1,0 +1,417 @@
+# Lit Review
+
+Baker, Rosenbergerm Dersimonian
+CLOSED-FORM ESTIMATES FOR MISSING COUNTS IN
+TWO-WAY CONTINGENCY TABLES
+
+
+* 2-way contingency table with missing cells (some missing one value, 
+some missing both) with "supplemental margins"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+tmpf <- tempfile(fileext = ".rds")
+
+# load data; modify; expand counts to rows
+df <- read_rds(nested_here("data", "analytic_student_lvl.rds"))  #|> 
+  # filter(!is.na(student_gender), !is.na(student_race)) |> 
+  # mutate(
+  #   across(matches("yes$"), ~ .x / student_count),
+  #   n_denom     = sum(student_count),
+  #   .by         = c("school_id", "data_schoolyear")
+  #   ) |> 
+  # select(
+  #   school_id, 
+  #   data_schoolyear, 
+  #   student_race, 
+  #   asthma_status, 
+  #   student_gender, 
+  #   n_denom,
+  #   student_count,
+  #   grade_level, 
+  #   region_3grp,
+  #   wave,
+  #   matches("yes")
+  #   ) |> 
+  #   arrange(
+  #     school_id, 
+  #     data_schoolyear, 
+  #     asthma_status, 
+  #     student_race, 
+  #     student_gender
+  #     ) |> 
+  # rowid_to_column("row_id") |> 
+  # droplevels() |> 
+  # write_rds(tmpf)
+```
+
+```{r}
+# anti_join(
+#   read_rds(tmpf),
+#   na.omit(read_rds(tmpf))
+# )
+```
+
+```{r}
+df_504 <- df |> 
+  pivot_longer(
+    c(matches("504_count_yes"), matches("504_count_no")), 
+    names_to  = "x504_status", 
+    values_to = "student_count_row"
+    ) |> 
+  mutate(
+    student_race = fct_na_level_to_value(
+      student_race,
+      "Middle Eastern or North African"
+      )
+    ) |>
+  
+  summarise(
+    student_count_row = sum(student_count_row),
+    .by = c(school_id, data_schoolyear, 
+           student_race, student_gender, asthma_status, x504_status)
+    ) |> 
+  droplevels()
+  
+
+allocate_gender <- function(grp_Female, grp_Male, `grp_Non-Binary`, grp_NA, ...) {
+  c(rmultinom(1, grp_NA, c(grp_Female, grp_Male, `grp_Non-Binary`))) |> 
+    set_names("Female", "Male", "Non-Binary")
+  }
+  
+
+df_504 |> 
+  select(school_id, data_schoolyear, 
+           student_race, student_gender, asthma_status, x504_status,
+           student_count_row) |> 
+  filter(student_count_row > 0) |> 
+  pivot_wider(
+    names_from   = c(student_gender),
+    names_prefix = "grp_",
+    values_from  = student_count_row,
+    values_fill  = 0
+    ) |> 
+  filter(grp_NA > 0) |> 
+  head(2) |> 
+  pmap(allocate_gender)
+```
+
+
+```{r}
+|> 
+  rowwise() |> 
+  mutate(
+    adds = rmultinom(1, )
+    
+    avail_total = sum(grp_Female, grp_Male, `grp_Non-Binary`),
+    
+    adj = 
+    
+    adj_Female  = grp_Female + (grp_Female/avail_total)*grp_NA,
+    adj_Male  = grp_Male + (grp_Male/avail_total)*grp_NA,
+    `adj_Non-Binary`  = `grp_Non-Binary` + (`grp_Non-Binary`/avail_total)*grp_NA
+    ) |> 
+  
+  filter(grp_NA > 0)
+           
+```
+
+
+for each outcome...
+
+```{r}
+mod_504 <- geepack::geeglm(
+  student_count_row ~ data_schoolyear + grade_level + region_3grp + wave + 
+    (student_race + student_gender + asthma_status + x504_status)^2, 
+  offset = log(student_count_complete),
+  data   = na.omit(df_504),
+  waves  = data_schoolyear,
+  id     = school_id,
+  corstr = "independence",
+  family = poisson(link = "log")
+)
+summary(mod_504)
+```
+```{r}
+data.frame(
+  pred     = predict(mod_504, newdata = df_504, type = "response"),
+  df_504 |> relocate(student_count_row, student_race, student_gender)
+  )  
+  
+  ggplot(aes(obs, pred)) +
+  geom_point()
+```
+
+
+
+```{r}
+imp_mod <- geepack::geeglm(
+  student_count ~ data_schoolyear + grade_level + region_3grp + wave + 
+    student_race + student_gender + asthma_status,
+  offset = log(n_denom),
+  data   = read_rds(tmpf),
+  waves  = data_schoolyear,
+  id     = school_id,
+  corstr = "independence",
+  family = poisson(link = "log")
+)
+
+summary(imp_mod)
+```
+
+
+```{r}
+read_rds(tmpf) |> 
+  filter(is.na(student_gender), is.na(student_race))
+```
+
+
+```{r}
+imp_df2 <- read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  rowid_to_column("row_id") |> 
+  filter(is.na(student_gender), !is.na(student_race)) |> 
+  mutate(n_denom     = student_count) |>
+  select(-student_gender) |> 
+  merge(
+    expand_grid(
+      student_gender = levels(read_rds(tmpf)$student_gender)
+      ),
+    by = NULL
+    )
+imp_df3 <- read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  rowid_to_column("row_id") |> 
+  filter(is.na(student_race), !is.na(student_gender)) |> 
+  mutate(n_denom     = student_count) |>
+  select(-student_race) |> 
+  merge(
+    expand_grid(
+      student_race = levels(read_rds(tmpf)$student_race)
+      ),
+    by = NULL
+    )
+
+imp_df4 <- read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+  rowid_to_column("row_id") |> 
+  filter(is.na(student_gender), is.na(student_race)) |> 
+  mutate(n_denom     = student_count) |>
+  select(-student_gender, -student_race) |> 
+  merge(
+    expand_grid(
+      student_gender = levels(read_rds(tmpf)$student_gender),
+      student_race = levels(read_rds(tmpf)$student_race)
+      ),
+    by = NULL
+    )
+
+imp_pred <- list(imp_df2, imp_df3, imp_df4) |> reduce(rbind)
+```
+
+```{r}
+imp_pred$pred <- predict(imp_mod, imp_pred, type = "response")
+```
+
+
+```{r}
+set.seed(99)
+
+# full_join(
+  # read_rds(tmpf),
+  imp_pred |> 
+    relocate(n_denom, pred, student_gender, student_race) |> 
+    mutate(prob = pred / sum(pred), .by = row_id, .after = pred) |>
+    select(row_id, n_denom, prob, student_gender, student_race) |> 
+    group_split(row_id) |> 
+    head() |> 
+    map_dfr(~{
+      data.frame(
+        .x,
+        rmultinom(5, first(.x$n_denom), .x$prob)
+        ) |> 
+        pivot_longer(
+          matches("X"),
+          values_to = "student_count",
+          names_to = "i"
+        )
+      }) |> 
+    group_split(i) |> 
+    map(~{
+      full_join(
+        .x,
+        read_rds(tmpf)
+      )
+    })
+# )  
+```
+
+
+```{r}
+select(-student_count, -n_denom) |> 
+  full_join(
+    read_rds(tmpf) |> select(-row_id),
+    by = c("school_id", "data_schoolyear", "student_race", "asthma_status", "student_gender")
+    ) |> 
+  filter(sum(!is.na(pred)) > 0, .by = c("school_id", "data_schoolyear", "student_race", "asthma_status")) |> 
+  mutate(pred = round(pred)) |> 
+  
+  relocate(pred, matches("student_count"), matches("student_gender")) |> 
+  arrange(school_id, data_schoolyear, student_race, asthma_status, student_gender)  
+```
+
+
+```{r}
+imp_dat_summ <- imp_dat |>
+  complete(
+    nesting(school_id, data_schoolyear, 
+            grade_level, region_3grp, wave, 
+            food_allergy_count_yes , non_food_allergy_count_yes , student_504_count_yes , 
+            iep_count_yes, esl_count_yes, frm_count_yes, homelessness_count_yes),
+    student_race, student_gender, asthma_status, fill = list(student_count = 0)
+  ) |> 
+  summarise(
+    student_count = sum(student_count),
+    .by = all_of(c("data_schoolyear" , "grade_level" , "region_3grp" , "wave" ,
+                   "student_race" , "student_gender" , "asthma_status", 
+                   "food_allergy_count_yes" , "non_food_allergy_count_yes" , "student_504_count_yes" , 
+                   "iep_count_yes", "esl_count_yes", "frm_count_yes", "homelessness_count_yes"
+    ))
+  )
+
+
+
+imp_dat_summ |> 
+  filter(!is.na(student_gender)) |> 
+  mutate(
+    p = (student_count) / sum(student_count),
+    .by = all_of(c( "data_schoolyear" , "grade_level" , "region_3grp" , "wave" ,
+                    "student_race" , 
+                    # "student_gender" , 
+                    "asthma_status", 
+                    "food_allergy_count_yes" , "non_food_allergy_count_yes" , "student_504_count_yes" , 
+                    "iep_count_yes", "esl_count_yes", "frm_count_yes", "homelessness_count_yes"
+    )),
+    .keep = "unused"
+  ) |> 
+  pivot_wider(
+    names_from = student_gender,
+    values_from = p
+  )
+
+
+
+
+predvars <- c(
+  "data_schoolyear", "grade_level", "region_3grp", "wave", 
+  "student_race",
+  "asthma_status", "student_count", 
+  "food_allergy_count_yes", "non_food_allergy_count_yes",
+  "student_504_count_yes", "iep_count_yes", "esl_count_yes",
+  "frm_count_yes", "homelessness_count_yes"
+)
+
+
+imp_male <- geepack::geeglm(
+  arsenal::formulize("cbind(n_male, n_not_male)", predvars),
+  data   = droplevels(na.omit(imp_dat)),
+  waves  = data_schoolyear,
+  id     = school_id,
+  corstr = "independence",
+  family = binomial(link = "logit")
+)
+
+imp_dat$pred_male <- predict(
+  imp_male, 
+  type    = "response", 
+  newdata = imp_dat
+)
+
+
+imp_female <- geepack::geeglm(
+  arsenal::formulize("cbind(n_female, n_not_female)", predvars),
+  data   = droplevels(na.omit(imp_dat)),
+  waves  = data_schoolyear,
+  id     = school_id,
+  corstr = "independence",
+  family = binomial(link = "logit")
+)
+
+imp_dat$pred_female <- predict(
+  imp_female, 
+  type    = "response", 
+  newdata = imp_dat
+)
+
+
+imp_nonbin <- geepack::geeglm(
+  arsenal::formulize("cbind(n_nonbin, n_not_nonbin)", predvars),
+  data   = droplevels(na.omit(imp_dat)),
+  waves  = data_schoolyear,
+  id     = school_id,
+  corstr = "independence",
+  family = binomial(link = "logit")
+)
+
+imp_dat$pred_nonbin <- predict(
+  imp_nonbin, 
+  type    = "response", 
+  newdata = imp_dat
+)
+
+
+imp_dat |> 
+  filter(is.na(student_gender)) |> 
+  relocate(starts_with("pred")) |> 
+  mutate(pred_total = round(pred_male + pred_female + pred_nonbin, 2),
+         .before = 1)
+
+
+
+head(imp_dat <- read_rds(nested_here("data", "analytic_student_lvl.rds")) |> 
+       mutate(
+         male_count    = case_when(student_gender == "male" ~ student_count, .default = 0),
+         nonmale_count = case_when(student_gender != "male" ~ student_count, .default = 0)
+       ) |> 
+       
+       summarise(
+         across(all_of(matches("yes")), sum),
+         student_count = sum(student_count),
+         average_attendance = weighted.mean(average_attendance, student_count),
+         .by = c(
+           school_id, data_schoolyear, grade_level, region_3grp, 
+           student_race, asthma_status 
+         )
+       )
+     
+     
+)
+
+
+# impute gender
+multgee::nomLORgee(
+  student_gender ~ data_schoolyear + grade_level +  region_3grp + 
+    student_race + asthma_status + student_count +
+    asthma_count_yes + food_allergy_count_yes + non_food_allergy_count_yes + student_504_count_yes + iep_count_yes + 
+    esl_count_yes + frm_count_yes + homelessness_count_yes + average_attendance,
+  data = imp_dat,
+  id = school_id,
+  repeated = data_schoolyear
+)
+
+
+```
+
+

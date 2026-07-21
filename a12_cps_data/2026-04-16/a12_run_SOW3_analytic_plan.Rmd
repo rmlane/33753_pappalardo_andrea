@@ -1,0 +1,69 @@
+---
+title: "CPS Data Summary: Longitudinal Outcomes"
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+params:
+  parent_dir: "a12_cps_data" # relative to project root
+  version: "2026-04-16" 
+  raw_data_cps:
+    value:
+      file: "UIC Asthma Status Data Albuterol SoW Shell_07252025.xlsx"
+      sheet: "SY22, 23, 24 and 25 Asthma Stat"
+      box_id: '1938297974039'
+      clean_name: "student_counts"
+  raw_data_schools_metadata:
+    value: 
+      file: "CPS Schools CCAs Regions.xlsx"
+      sheet: NULL
+      box_id: '2071252778107'
+      clean_name: "schools"
+  raw_data_utilization:
+    # value:
+    #   file: "CPS 2023-2025 utilization recode.xlsx"
+    #   sheet: "Sheet1"
+    #   box_id: '2017350498669'
+    #   clean_name: "inhaler_events"
+    value: # added 2026-03-25
+      file: "CPS 2023-2025 utilization recode_3-23.xlsx"
+      sheet: "Utilization Data"
+      box_id: '2173811730030'
+      clean_name: "inhaler_events"
+      # force_preproc: TRUE
+  raw_data_waves: # added 2026-01-21
+    value:
+      file: "CPS Ramp Up School List_MostUpdated.xlsx"
+      sheet: "Sheet1"
+      box_id: "2109640911794"
+      clean_name: "waves"
+  raw_sy_dates: # added 2026-03-04
+    value:
+      box_id: "2154041346707"
+      file: "schoolyear_dates.xlsx"
+      sheet: "Sheet1"
+      clean_name: "school_year_dates"
+      # force_preproc: true
+  enrollment_count_files: # box ids
+    value: 
+      sy_22: "2154049626576"
+      sy_23: "2154041838698"
+      sy_24: "2154043506963"
+      sy_25: "2154043912572"
+      sy_26: "2154047037077"
+  force_preproc: FALSE
+knit: |
+  (function(input, ...) {
+      rmarkdown::render(
+        input, 
+        output_file   = paste0("33753_cps_data_", Sys.Date()),
+        output_dir    = file.path(dirname(input), "output"),
+        envir         = globalenv()
+      )
+  })
+---
+
+
+
+
+# Missing Data
+
+
