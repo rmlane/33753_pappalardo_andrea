@@ -1,0 +1,20 @@
+## Step 1: Weights
+
+"The treatment model can be defined as an association
+model that ‘‘predicts’’ use of rescue medication as
+some function of confounders." [@Mortimer2005]
+
+First, calculate stabilized IPTW: "(marginal probability/conditional probability) or P(A)/P(A|W)" [@Mortimer2005]
+
+Numerator: P(A) >> probability of exposure level
+Denominator: P(A|W) >> probability of exposure level given confounders
+
+
+```{r}
+library(tidyverse)
+
+schools <- read_rds(here::here(
+  "a12_cps_data/2026-07-22/data/schools_analytic.rds" 
+  ))
+```
+
