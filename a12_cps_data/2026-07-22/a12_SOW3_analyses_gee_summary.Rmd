@@ -1,0 +1,49 @@
+```{r}
+mods <- read_rds(nested_here("data", "models", "final_mods.rds"))
+```
+
+cbind(asthma_count_yes, asthma_count_no) ~ 
+    poly(num_time, 2) + student_race + student_gender + region_3grp + 
+        grade_level + wave + poly(active_months, 2) + any_events_cumulative
+        
+```{r}
+summary(mods$asthma)
+```
+
+```{r}
+broom::tidy(mods$asthma)
+```
+
+```{r}
+emmeans::emmeans(
+  mods$asthma,
+  pairwise ~ wave | data_schoolyear, 
+  type = "response"
+  )
+
+emmeans::emmeans(
+  mods$asthma,
+  ~ data_schoolyear | wave, 
+  type = "response",
+  weights = "cells"
+  ) |> 
+  emmeans::contrast("consec", infer = TRUE) |>
+  rbind() |> 
+  emmeans::contrast("trt.vs.ctrl", by = "contrast")
+  # data.frame() #|> 
+  ggplot(aes(data_schoolyear, odds.ratio, ymin = lower.CL, ymax = upper.CL, color = wave)) +
+  geom_pointrange() +
+  facet_wrap(. ~ wave)
+  
+  
+```
+
+```{r}
+emmeans::emmeans(
+  mods$asthma,
+  pairwise ~ any_events_cumulative, 
+  type = "response"
+  ) 
+```
+
+
