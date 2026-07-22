@@ -9,6 +9,7 @@ First, calculate stabilized IPTW: "(marginal probability/conditional probability
 Numerator: P(A) >> probability of exposure level
 Denominator: P(A|W) >> probability of exposure level given confounders
 
+P(A)
 
 ```{r}
 library(tidyverse)
@@ -16,5 +17,184 @@ library(tidyverse)
 schools <- read_rds(here::here(
   "a12_cps_data/2026-07-22/data/schools_analytic.rds" 
   ))
+
+
+
+schools_mod <- schools |> 
+  filter(!(data_schoolyear %in% c("2021-2022", "2022-2023"))) |> 
+  droplevels()
+```
+
+```{r}
+writeLines(names(schools_mod), sep = " + ", con = "clipboard")
+```
+
+```{r}
+summary(schools_mod)
+```
+
+```{r}
+(m_iptw_numer <- geepack::geeglm(
+  any_events_binary ~ ordered(data_schoolyear),
+  family = binomial(link = "logit"),
+  id     = factor(school_id),
+  waves  = as.numeric(ordered(data_schoolyear)),
+  data   = schools_mod
+))
+```
+
+```{r}
+summary(schools_mod$impl_days)
+```
+
+
+```{r}
+library(arsenal)
+tableby(any_events ~ student_count +
+          grade_level + region + wave + 
+          rpl_ser + 
+          re_majority + pct_male +
+          asthma_pct + food_allergy_pct + non_food_allergy_pct + 
+          student_504_pct + iep_pct + 
+          esl_pct + frm_pct + homelessness_pct + 
+          attendance + attendance_asthma,
+        strata = data_schoolyear,
+        data = schools_mod) |> 
+  summary()
+
+```
+
+```{r}
+summary(m_iptw_numer <- geepack::geeglm(
+  any_events_binary ~ data_schoolyear,
+  family = binomial(link = "logit"),
+  id     = school_id,
+  waves  = data_schoolyear,
+  data   = schools_mod
+))
+```
+
+
+```{r}
+summary(m_iptw_denom <- geepack::geeglm(
+  any_events_binary ~ data_schoolyear 
+    + poly(student_count, 3)  
+    + re_majority + grade_level + wave
+    + poly(pct_male, 3) 
+    + poly(rpl_ser, 3)  
+    + poly(impl_days, 3)
+    + poly(asthma_pct, 3) 
+    + poly(asthma_pct.lastyear, 3)
+    + poly(student_504_pct, 3) 
+    + poly(iep_pct, 3) 
+    + poly(esl_pct, 3) 
+    + poly(frm_pct, 3) 
+    + poly(homelessness_pct, 3)
+  ,
+  family = binomial(link = "logit"),
+  id     = school_id,
+  waves  = data_schoolyear,
+  data   = schools_mod
+))
+
+```
+
+```{r}
+# look for non-linear terms
+# library(mgcv)
+# summary(gam_mod <- gam(
+#   any_events_binary ~ data_schoolyear 
+#     + s(student_count) 
+#     + re_majority + grade_level + wave
+#     + s(pct_male) 
+#     + s(rpl_ser)
+#     + s(impl_days, k = 8)
+#     + s(asthma_pct) 
+#     + s(asthma_pct.lastyear)
+#     + s(student_504_pct) 
+#     + s(iep_pct) 
+#     + s(esl_pct)
+#     + s(frm_pct)
+#     + s(homelessness_pct),
+#   family = binomial(link = "logit"),
+#   data   = schools_mod
+# ))
+```
+```{r}
+summary(m_iptw_denom <- geepack::geeglm(
+  any_events_binary ~ data_schoolyear 
+    + student_count  
+    + re_majority + grade_level + wave
+    + poly(pct_male, 2) 
+    + rpl_ser
+    + impl_days
+    + asthma_pct
+    + asthma_pct.lastyear
+    + poly(student_504_pct, 2) 
+    + poly(iep_pct, 3) 
+    + esl_pct
+    + frm_pct
+    + poly(homelessness_pct, 2)
+  ,
+  family = binomial(link = "logit"),
+  id     = school_id,
+  waves  = data_schoolyear,
+  data   = schools_mod
+))
+```
+
+```{r}
+schools_mod <- schools_mod |> 
+  mutate(
+    stab_iptw = case_when(
+      any_events_binary == 1 ~ (
+        predict(m_iptw_numer, type = "response") /
+          predict(m_iptw_denom, type = "response")
+        ),
+      any_events_binary == 0 ~ (
+        (1 - predict(m_iptw_numer, type = "response")) /
+          (1 - predict(m_iptw_denom, type = "response"))
+        )
+      )
+    )
+
+```
+
+Step 2: Attendance
+
+```{r}
+schools_mod <- schools_mod |> 
+  mutate(
+    days_present  = round((student_count*176)*(attendance / 100)),
+    days_absent   = round((student_count*176)*(1 - (attendance / 100))),
+    days_expected = round((student_count*176)),
+    .before       = 1
+  )
+```
+
+```{r}
+summary(geepack::geeglm(
+  cbind(days_present, days_absent) ~ data_schoolyear 
+    + poly(stab_iptw, 3) 
+    + any_events_binary
+    
+    + student_count
+    + re_majority + grade_level + wave
+    + poly(pct_male, 2)
+    + rpl_ser
+    + impl_days
+    + asthma_pct
+    + asthma_pct.lastyear
+    + poly(student_504_pct, 2)
+    + poly(iep_pct, 3)
+    + esl_pct
+    + frm_pct
+    + poly(homelessness_pct, 2)
+  ,
+  family = binomial(link = "logit"),
+  id     = school_id,
+  waves  = data_schoolyear,
+  data   = schools_mod
+))
 ```
 
