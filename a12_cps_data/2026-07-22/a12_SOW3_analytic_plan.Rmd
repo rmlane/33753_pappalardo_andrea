@@ -28,6 +28,7 @@ knit: |
 
 Process, merge data
 
+## Descriptive Statistics
 
 Univariate, unadjusted, descriptive
 
@@ -46,12 +47,9 @@ The current analysis treats school data as observational and uses a marginal str
 
 While efforts were made to randomize the order in which the program was introduced, schools were ultimately responsible for their own level of program adoption. Adoption was likely influenced by measured and unmeasured school characteristics, including documented and actual asthma prevalence; adoption also likely influenced documented asthma prevalence and subsequent adoption. 
 
-
 The MSM approach is appropriate for describing longitudinal observational data; it provides strategies to handle issues of selection bias and time-varying exposures that may be influenced by earlier exposures and other time-varying characteristics [@Faries2010 p. 211-212].
 
-
 "Intention-to-treat" analysis, which would use intervention group or time since introduction as the exposure variable, wouldn't account for school-specific patterns of program adoption. Traditional longitudinal analyses, such as linear mixed-effects models with time-varying independent variables, wouldn't capture the way adoption, asthma, and attendance may influence each other over time [@Faries2010 p. 211-212].
-
 
 In MSM, inverse probability of treatment weighting (IPTW) controls for imbalance of school characteristics, including time-varying intervention exposure, and allows for causal inference about treatment effects as if the study were 
 a randomized trial with comparable groups. [@Faries2010 p. 213]. The analysis takes place in two steps. 
@@ -64,7 +62,6 @@ may confound the association of interest." [@Mortimer2005]
 ## Data Preparation
 
 Data were summarized at the school and school-year level. 
-
 
 Point-in-time variables reported at BEGINNING of school year (day 20): 
 

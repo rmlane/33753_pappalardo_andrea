@@ -1,0 +1,9 @@
+2026-07-23
+
+All tables use raw data from the file "CPS SOW Data Pull 7-7-2026 Updated Gender.xlsx", tab "Updated SY22, 23, 24 and 25 Ast"
+
+- descriptive.xlsx summarizes school characteristics by schoolyear for each year between 2021-2022 and 2024-2025.
+
+- yoy_changes.xlsx reports estimates of mean within-school year-to-year change in each numeric variable. Estimates are based on generalized estimating equations (GEE) models for annual raw change, with school id as the grouping variable to account. Each variable was modeled separately.
+
+- event_predictors_univar.xlsx compares characteristics of schools with 0 reported inhaler events and 1+ reported inhaler events, stratified by year (2023-2024 and 2024-2025 only). All reported associations are unadjusted and p-values are not corrected for multiple testing.

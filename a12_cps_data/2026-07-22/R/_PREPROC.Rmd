@@ -23,7 +23,7 @@ df_mod <- df_raw |>
     student_count = asthma_count,
     asthma_count  = student_count*(asthma_status == "Yes"),
     .after        = asthma_status
-  )
+    )
 ```
 
 
@@ -67,10 +67,11 @@ df_school <- full_join(
   df_mod |> 
     summarise(
       pct_male = sum(student_count*(tolower(student_gender) == "male")) / sum(student_count),
+      pct_female = sum(student_count*(tolower(student_gender) == "female")) / sum(student_count),
+      pct_nonbinary = sum(student_count*(tolower(student_gender) == "non-binary")) / sum(student_count),
       .by   = c(student_current_school, enrollment_year)
       ) 
   )
-
 
 ```
 
@@ -81,7 +82,7 @@ df_school <- full_join(
   df_mod |> 
     summarise(
       attendance = weighted.mean(average_attendance, student_count),
-      count = sum(student_count),
+      # count = sum(student_count),
       .by = c(student_current_school, enrollment_year, asthma_status)
       ) |> 
     
@@ -151,7 +152,8 @@ df_school <- df_school |>
       here::here(
         "a12_cps_data/data-raw", 
         "CPS_EJI_Excel.xls"
-        )
+        ),
+      na = c("", -999)
       ) |> 
       janitor::clean_names() |> 
       distinct(school_id, rpl_ser) |> 
@@ -184,9 +186,21 @@ df_school <- df_school |>
     ) |> 
   mutate(across(
     ends_with("count"), 
-    ~ .x / student_count,
+    ~ (.x / student_count)*100,
     .names = "{gsub('count', 'pct', .col)}"
-    ))
+    )) |> 
+  
+  mutate(n_schools = "Overall", .before = 1) |> 
+  
+  mutate(
+    days_perstudent_expected = 176,
+    days_perstudent_present = days_perstudent_expected*(attendance/100),
+    days_perstudent_absent = days_perstudent_expected*((100-attendance)/100),
+    
+    days_perschool_expected = days_perstudent_expected*student_count,
+    days_perschool_present = days_perstudent_present*student_count,
+    days_perschool_absent = days_perstudent_absent*student_count
+  )
 ```
 
 ```{r}

@@ -1,15 +1,30 @@
-## Step 1: Weights
+176 student-days -- use as baseline
 
-"The treatment model can be defined as an association
-model that ‘‘predicts’’ use of rescue medication as
-some function of confounders." [@Mortimer2005]
 
-First, calculate stabilized IPTW: "(marginal probability/conditional probability) or P(A)/P(A|W)" [@Mortimer2005]
+modify in descriptive tables
 
-Numerator: P(A) >> probability of exposure level
-Denominator: P(A|W) >> probability of exposure level given confounders
+comments -- randomized trials in survey design
 
-P(A)
+
+
+
+
+
+
+
+## What predicts utilization?
+
+
+```{r}
+attd_change <- school_change |> 
+  filter(grepl("attendance", variable)) |> 
+  pivot_wider(names_from = "variable", names_prefix = "chg_") |> 
+  mutate(
+    data_schoolyear = gsub("([0-9]+)\\.([0-9]+)-.*", "20\\1-20\\2", years),
+    .keep = "unused"
+    )
+```
+
 
 ```{r}
 library(tidyverse)
@@ -21,46 +36,194 @@ schools <- read_rds(here::here(
 
 
 schools_mod <- schools |> 
+  filter(!is.na(rpl_ser)) |> 
+  mutate(n_schools = "Overall", .before = 1) |> 
+  mutate(across(matches("pct"), ~ .x*100)) |> 
   filter(!(data_schoolyear %in% c("2021-2022", "2022-2023"))) |> 
-  droplevels()
-```
-
-```{r}
-writeLines(names(schools_mod), sep = " + ", con = "clipboard")
-```
-
-```{r}
-summary(schools_mod)
-```
-
-```{r}
-(m_iptw_numer <- geepack::geeglm(
-  any_events_binary ~ ordered(data_schoolyear),
-  family = binomial(link = "logit"),
-  id     = factor(school_id),
-  waves  = as.numeric(ordered(data_schoolyear)),
-  data   = schools_mod
-))
-```
-
-```{r}
-summary(schools_mod$impl_days)
+  mutate(data_schoolyear = factor(data_schoolyear, ordered = FALSE)) |> 
+  droplevels() |> 
+  
+  left_join(attd_change, by = c("school_id", "data_schoolyear"))
 ```
 
 
 ```{r}
 library(arsenal)
-tableby(any_events ~ student_count +
-          grade_level + region + wave + 
-          rpl_ser + 
-          re_majority + pct_male +
-          asthma_pct + food_allergy_pct + non_food_allergy_pct + 
-          student_504_pct + iep_pct + 
-          esl_pct + frm_pct + homelessness_pct + 
-          attendance + attendance_asthma,
+tableby(any_events ~ notest(n_schools) 
+        + grade_level 
+        + notest(region) 
+        + wave 
+        + student_count 
+        + re_majority 
+        + pct_male 
+        + pct_female 
+        + pct_nonbinary 
+        + rpl_ser 
+        + asthma_pct 
+        + food_allergy_pct 
+        + non_food_allergy_pct 
+        + student_504_pct 
+        + iep_pct 
+        + esl_pct 
+        + frm_pct 
+        + homelessness_pct
+        + attendance + chg_attendance
+        + attendance_asthma + chg_attendanceasthma,
         strata = data_schoolyear,
-        data = schools_mod) |> 
-  summary()
+        data = schools_mod,
+        control = tableby.control(
+          total          = FALSE,
+          digits.n	     = NA,
+          digits        = 2,
+          numeric.test = "kwt",
+          ordered.test = "kwt",
+          numeric.stats  = c("medianrange", "q1q3",  "meansd")
+          )
+        ) |> 
+  summary(text = TRUE) |> 
+  as.data.frame() |> 
+  
+  openxlsx::write.xlsx(
+    nested_here("output", "tables", glue::glue("{Sys.Date()}_t2_event_predictors_univar.xlsx")),
+    asTable = TRUE
+    )
+```
+
+
+```{r}
+schools_mod |> 
+  pivot_longer(starts_with("chg_att")) |> 
+  ggplot(aes(value, color = grade_level)) +
+  geom_density() +
+  facet_grid(name ~ data_schoolyear) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+schools_mod |> 
+  pivot_longer(starts_with("chg_att")) |> 
+  ggplot(aes(value, color = re_majority)) +
+  geom_density() +
+  facet_grid(name ~ data_schoolyear) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "lightgray") +
+  theme(legend.position = "bottom")
+```
+
+
+```{r}
+schools_mod |> 
+  pivot_longer(starts_with("chg_att")) |> 
+  ggplot(aes(grade_level, value)) +
+  geom_boxplot(width = 0.5, alpha = 0.75) +
+  facet_grid(. ~ name) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.25)
+```
+
+
+
+more meaningful to report student-days gained or lost
+
+
+```{r}
+library(arsenal)
+tableby(cut(chg_attendance, quantile(chg_attendance)) ~ notest(n_schools) 
+        + grade_level 
+        + notest(region) 
+        + wave 
+        + student_count 
+        + re_majority 
+        + pct_male 
+        + pct_female 
+        + pct_nonbinary 
+        + rpl_ser 
+        + asthma_pct 
+        + food_allergy_pct 
+        + non_food_allergy_pct 
+        + student_504_pct 
+        + iep_pct 
+        + esl_pct 
+        + frm_pct 
+        + homelessness_pct
+        + any_events + n_events,
+        strata = data_schoolyear,
+        data = schools_mod,
+        control = tableby.control(
+          total          = FALSE,
+          digits.n	     = NA,
+          digits        = 2,
+          numeric.test = "kwt",
+          ordered.test = "kwt",
+          numeric.stats  = c("medianrange", "q1q3",  "meansd")
+          )
+        ) |> 
+  summary(text = TRUE) |> 
+  as.data.frame() |> 
+  
+  openxlsx::write.xlsx(
+    nested_here("output", "tables", glue::glue("{Sys.Date()}_t2_attd_chg_pred_univar.xlsx")),
+    asTable = TRUE
+    )
+```
+
+```{r}
+library(arsenal)
+tableby(cut(chg_attendanceasthma, quantile(chg_attendanceasthma, na.rm = TRUE)) ~ notest(n_schools) 
+        + grade_level 
+        + notest(region) 
+        + wave 
+        + student_count 
+        + re_majority 
+        + pct_male 
+        + pct_female 
+        + pct_nonbinary 
+        + rpl_ser 
+        + asthma_pct 
+        + food_allergy_pct 
+        + non_food_allergy_pct 
+        + student_504_pct 
+        + iep_pct 
+        + esl_pct 
+        + frm_pct 
+        + homelessness_pct
+        + any_events + n_events,
+        strata = data_schoolyear,
+        data = schools_mod,
+        control = tableby.control(
+          total          = FALSE,
+          digits.n	     = NA,
+          digits        = 2,
+          numeric.test = "kwt",
+          ordered.test = "kwt",
+          numeric.stats  = c("medianrange", "q1q3",  "meansd")
+          )
+        ) |> 
+  summary(text = TRUE) |> 
+  as.data.frame() |> 
+  
+  openxlsx::write.xlsx(
+    nested_here("output", "tables", glue::glue("{Sys.Date()}_t2_asthmaattd_chg_pred_univar.xlsx")),
+    asTable = TRUE
+    )
+```
+
+
+
+
+## Step 1: Weights
+
+"The treatment model can be defined as an association
+model that "predicts" use of rescue medication as
+some function of confounders." [@Mortimer2005]
+
+First, calculate stabilized IPTW: "(marginal probability/conditional probability) or P(A)/P(A|W)" [@Mortimer2005]
+
+Numerator: P(A) >> probability of exposure level
+Denominator: P(A|W) >> probability of exposure level given confounders
+
+P(A)
+
+```{r}
 
 ```
 
@@ -68,27 +231,30 @@ tableby(any_events ~ student_count +
 summary(m_iptw_numer <- geepack::geeglm(
   any_events_binary ~ data_schoolyear,
   family = binomial(link = "logit"),
-  id     = school_id,
+  id     = factor(school_id),
   waves  = data_schoolyear,
   data   = schools_mod
 ))
 ```
 
 
+
 ```{r}
 summary(m_iptw_denom <- geepack::geeglm(
-  any_events_binary ~ data_schoolyear 
-    + poly(student_count, 3)  
-    + re_majority + grade_level + wave
-    + poly(pct_male, 3) 
-    + poly(rpl_ser, 3)  
+  any_events_binary ~ data_schoolyear
+    + poly(student_count, 3)
+    + re_majority
+    + grade_level
+    + wave
+    + poly(pct_male, 3)
+    + poly(rpl_ser, 3)
     + poly(impl_days, 3)
-    + poly(asthma_pct, 3) 
+    + poly(asthma_pct, 3)
     + poly(asthma_pct.lastyear, 3)
-    + poly(student_504_pct, 3) 
-    + poly(iep_pct, 3) 
-    + poly(esl_pct, 3) 
-    + poly(frm_pct, 3) 
+    + poly(student_504_pct, 3)
+    + poly(iep_pct, 3)
+    + poly(esl_pct, 3)
+    + poly(frm_pct, 3)
     + poly(homelessness_pct, 3)
   ,
   family = binomial(link = "logit"),
@@ -103,16 +269,16 @@ summary(m_iptw_denom <- geepack::geeglm(
 # look for non-linear terms
 # library(mgcv)
 # summary(gam_mod <- gam(
-#   any_events_binary ~ data_schoolyear 
-#     + s(student_count) 
+#   any_events_binary ~ data_schoolyear
+#     + s(student_count)
 #     + re_majority + grade_level + wave
-#     + s(pct_male) 
+#     + s(pct_male)
 #     + s(rpl_ser)
 #     + s(impl_days, k = 8)
-#     + s(asthma_pct) 
+#     + s(asthma_pct)
 #     + s(asthma_pct.lastyear)
-#     + s(student_504_pct) 
-#     + s(iep_pct) 
+#     + s(student_504_pct)
+#     + s(iep_pct)
 #     + s(esl_pct)
 #     + s(frm_pct)
 #     + s(homelessness_pct),
@@ -121,26 +287,26 @@ summary(m_iptw_denom <- geepack::geeglm(
 # ))
 ```
 ```{r}
-summary(m_iptw_denom <- geepack::geeglm(
-  any_events_binary ~ data_schoolyear 
-    + student_count  
-    + re_majority + grade_level + wave
-    + poly(pct_male, 2) 
-    + rpl_ser
-    + impl_days
-    + asthma_pct
-    + asthma_pct.lastyear
-    + poly(student_504_pct, 2) 
-    + poly(iep_pct, 3) 
-    + esl_pct
-    + frm_pct
-    + poly(homelessness_pct, 2)
-  ,
-  family = binomial(link = "logit"),
-  id     = school_id,
-  waves  = data_schoolyear,
-  data   = schools_mod
-))
+# summary(m_iptw_denom <- geepack::geeglm(
+#   any_events_binary ~ data_schoolyear 
+#     + student_count  
+#     + re_majority + grade_level + wave
+#     + poly(pct_male, 2) 
+#     + rpl_ser
+#     + impl_days
+#     + asthma_pct
+#     + asthma_pct.lastyear
+#     + poly(student_504_pct, 2) 
+#     + poly(iep_pct, 3) 
+#     + esl_pct
+#     + frm_pct
+#     + poly(homelessness_pct, 2)
+#   ,
+#   family = binomial(link = "logit"),
+#   id     = school_id,
+#   waves  = data_schoolyear,
+#   data   = schools_mod
+# ))
 ```
 
 ```{r}
@@ -173,23 +339,48 @@ schools_mod <- schools_mod |>
 ```
 
 ```{r}
+summary(mgcv::gam(
+  cbind(days_present, days_absent) ~ 
+    s(stab_iptw) + data_schoolyear*any_events_binary
+    + s(student_count)
+    + re_majority + grade_level + wave
+    + s(pct_male)
+    + s(rpl_ser)
+    + s(impl_days, k = 8)
+    + s(asthma_pct)
+    + s(asthma_pct.lastyear)
+    + s(student_504_pct)
+    + s(iep_pct)
+    + s(esl_pct)
+    + s(frm_pct)
+    + s(homelessness_pct)
+  ,
+  family = binomial(link = "logit"),
+  # id     = school_id,
+  # waves  = data_schoolyear,
+  data   = schools_mod
+))
+```
+
+
+```{r}
 summary(geepack::geeglm(
   cbind(days_present, days_absent) ~ data_schoolyear 
-    + poly(stab_iptw, 3) 
+    + s(stab_iptw, 3) 
     + any_events_binary
     
     + student_count
     + re_majority + grade_level + wave
-    + poly(pct_male, 2)
+    + s(pct_male, 2)
     + rpl_ser
     + impl_days
     + asthma_pct
     + asthma_pct.lastyear
-    + poly(student_504_pct, 2)
-    + poly(iep_pct, 3)
+    + s(student_504_pct, 2)
+    + s(iep_pct, 3)
     + esl_pct
     + frm_pct
-    + poly(homelessness_pct, 2)
+    + s(homelessness_pct, 2)
   ,
   family = binomial(link = "logit"),
   id     = school_id,
@@ -197,4 +388,18 @@ summary(geepack::geeglm(
   data   = schools_mod
 ))
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
