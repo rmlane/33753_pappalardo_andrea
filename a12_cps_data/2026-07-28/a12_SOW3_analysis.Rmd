@@ -1,0 +1,523 @@
+---
+title: "CPS Data Summary: Longitudinal Outcomes"
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+params:
+  parent_dir: "a12_cps_data" # relative to project root
+  version: "2026-07-28"
+  school_profile_api_endpoints: 
+    value: 
+      sy_2122: "2dem-8rq7"
+      sy_2223: "9a5f-2r4p"
+      sy_2324: "cu4u-b4d9"
+      sy_2425: "3dhs-m3w4"
+  raw_data_cps_counts:
+    value:
+      box_id: "2332953277707"
+      filename: "CPS SOW Data Pull 7-7-2026 Updated Gender.xlsx"
+      sheet: "Updated SY22, 23, 24 and 25 Ast"
+  raw_data_utilization:
+    value: 
+      box_id: '2173811730030'
+      filename: "CPS 2023-2025 utilization recode_3-23.xlsx"
+      sheet: "Utilization Data"
+  raw_data_waves:
+    value:
+      box_id: "2109640911794"
+      filename: "CPS Ramp Up School List_MostUpdated.xlsx"
+      sheet: "Sheet1"
+  raw_data_sy_dates:
+    value:
+      box_id: "2154041346707"
+      filename: "schoolyear_dates.xlsx"
+      sheet: "Sheet1"
+# knit: |
+#   (function(input, ...) {
+#       rmarkdown::render(
+#         input, 
+#         output_file   = paste0("33753_cps_data_", Sys.Date()),
+#         output_dir    = file.path(dirname(input), "output"),
+#         envir         = globalenv()
+#       )
+#   })
+---
+
+```{r K, echo = FALSE, include = FALSE}
+# define document options
+knitr::opts_chunk$set(
+  echo    = FALSE, eval    = TRUE, 
+  message = FALSE, warning = FALSE
+  )
+```
+
+```{r, include = FALSE}
+# load libraries
+library(tidyverse)
+```
+
+```{r chunk_opts, echo = FALSE, include = FALSE}
+# define formatting options
+options(knitr.kable.NA = '')
+thm <- theme_set(theme_bw())
+```
+
+```{r}
+# function for easier navigation of relative refs
+nested_here <- function(
+    ...,    
+    parent_dir = params$parent_dir, 
+    version    = params$version
+    ) {
+    here::here(parent_dir, version, ...)
+}
+```
+
+```{r}
+# # (maybe) create subdirectories for code, data, output
+# walk(nested_here(c("R", "data", "output", "output/tables")), ~{
+#   if(!dir.exists(.x)) {dir.create(.x, recursive = TRUE)}
+#   })
+```
+
+```{r}
+# preproc
+# source(nested_here("R", "PREPROC.R"))
+```
+
+```{r}
+# fetch school characteristics from chicago data portal
+school_chars <- params$school_profile_api_endpoints |> 
+  map_dfr(~{
+    glue::glue("https://data.cityofchicago.org/api/v3/views/{.x}/query.json") |> 
+      httr::GET() |> 
+      pluck("content") |> 
+      rawToChar() |> 
+      jsonlite::fromJSON() |> 
+      janitor::clean_names() |> 
+      select(school_id, short_name, primary_category, matches("(lat)|(long)|(coord)"))
+  }) |> 
+  mutate(
+    school_match_name = gsub("_", "", snakecase::to_screaming_snake_case(short_name)),
+    grade_level       = fct_collapse(
+      primary_category,
+      "Elementary/Middle School" = c("ES", "MS"),
+      "High School"              = c("HS")
+      )
+    ) |> 
+  distinct()
+```
+
+```{r}
+# fetch city region boundaries from chicago data portal; merge to schools by location
+school_chars <- httr2::request("https://data.cityofchicago.org/api/v3/views/spyv-p8fk/query.json") |> 
+  httr2::req_perform() |> 
+  httr2::resp_body_json() |>
+  enframe() |> 
+  mutate(
+    region_name = unlist(map(value, ~ pluck(.x, "region_nam"))),
+    geom        = map(value, ~{
+      .x |> 
+        pluck("the_geom") |>
+        pluck("coordinates") |> 
+        unlist() |> 
+        matrix(byrow = TRUE, ncol = 2) |> 
+        as.data.frame() |> 
+        sf::st_as_sf(coords = c("V1", "V2")) |> 
+        sf::st_combine() |>  
+        sf::st_cast("POLYGON")
+      }),
+    
+    schools = map(geom, ~{
+      sf::st_intersection(
+        school_chars |> 
+          sf::st_as_sf(coords = c("school_longitude", "school_latitude")),
+        .x
+        ) |> 
+        sf::st_drop_geometry()
+      })
+  ) |> 
+  select(schools, region_name) |> 
+  unnest(schools)
+
+
+```
+
+
+
+
+
+# Describe School Chars by Year
+
+```{r}
+schools <- read_rds(nested_here("data/schools_analytic.rds")) 
+```
+
+```{r}
+library(arsenal)
+tableby(
+  data_schoolyear ~ n_schools 
+  + grade_level 
+  + region 
+  + wave 
+  + student_count 
+  + re_majority 
+  + pct_male 
+  + pct_female 
+  + pct_nonbinary 
+  + rpl_ser 
+  + asthma_pct 
+  + food_allergy_pct 
+  + non_food_allergy_pct 
+  + student_504_pct 
+  + iep_pct 
+  + esl_pct 
+  + frm_pct 
+  + homelessness_pct
+  + attendance 
+  + days_per_stu_expected
+  + days_per_stu_present
+  + days_per_stu_absent
+  + attendance_asthma 
+  + days_per_stu_present_asthma
+  + days_per_stu_absent_asthma
+  + n_events
+  + any_events 
+  ,
+  data    = schools,
+  control = tableby.control(
+    test           = FALSE,
+    total          = FALSE,
+    digits.n	     = NA,
+    digits        = 2,
+    numeric.stats  = c("Nmiss", "medianrange", "q1q3",  "meansd")
+    )
+  ) |> 
+  summary(text = TRUE) |> 
+  as.data.frame() |>
+  write_rds(nested_here("output", "t1_descriptive.rds"))
+
+read_rds(nested_here("output", "t1_descriptive.rds"))
+```
+
+
+```{r}
+read_rds(nested_here("output", "t1_descriptive.rds")) |> 
+  openxlsx::write.xlsx(
+    nested_here("output", "tables", "t1_descriptive.xlsx"),
+    asTable = TRUE
+    )
+```
+
+
+```{r}
+schools |> 
+  select(ends_with("count"), matches("days")) |> 
+  names() |> writeLines(sep = "', '", con = "clipboard")
+
+count_mods <- c('asthma_count', 'food_allergy_count', 'non_food_allergy_count', 
+  'student_504_count', 'iep_count', 'esl_count', 'frm_count', 'homelessness_count') |>
+  set_names() |> 
+  map(~{
+    geepack::geeglm(
+      arsenal::formulize(.x, "data_schoolyear + offset(log(student_count))"),
+      family = poisson(link = "log"),
+      data   = schools,
+      id     = school_id,
+      waves  = data_schoolyear,
+      corstr = "exchangeable"
+      ) 
+  })
+count_mods |> 
+  map(~{
+    emmeans::emmeans(.x, ~ data_schoolyear, offset = log(100), type = "response")
+    })
+```
+
+
+```{r}
+schooldays_mod <- geepack::geeglm(
+  days_per_school_present ~ data_schoolyear + offset(log(days_per_school_expected)),
+      family = poisson(link = "log"),
+      data   = schools |> mutate(days_per_school_present = round(days_per_school_present)),
+      id     = school_id,
+      waves  = data_schoolyear,
+      corstr = "exchangeable"
+      ) 
+emmeans::emmeans(
+  schooldays_mod, 
+  consec ~ data_schoolyear, 
+  offset = log(176), 
+  type = "response"
+  )  
+```
+
+
+```{r}
+schools |> 
+  select(-matches("lastyear")) |> 
+  relocate(attendance, student_count, matches("days_per_sch"))
+```
+
+
+
+```{r}
+'days_per_stu_expected', 'days_per_stu_present', 'days_per_stu_absent', 'days_per_school_expected', 'days_per_school_present', 'days_per_school_absent', 'days_per_stu_present_asthma', 'days_per_stu_absent_asthma', 'impl_days', 'days_per_stu_expected.lastyear', 'days_per_stu_present.lastyear', 'days_per_stu_absent.lastyear', 'days_per_school_expected.lastyear', 'days_per_school_present.lastyear', 'days_per_school_absent.lastyear', 'days_per_stu_present_asthma.lastyear', 'days_per_stu_absent_asthma.lastyear', 'impl_days.lastyear'
+  
+  
+```
+
+
+
+
+```{r}
+school_change <- schools |>
+  select(-matches("lastyear")) |> 
+  rename_with(~ gsub("_", "", .x), where(is.numeric)) |> 
+  mutate(
+    cc_22.23_21.22 = case_when(
+      data_schoolyear == "2022-2023" ~ 1,
+      data_schoolyear == "2021-2022" ~ -1,
+      .default = 0
+      ),
+    cc_23.24_22.23 = case_when(
+      data_schoolyear == "2023-2024" ~ 1,
+      data_schoolyear == "2022-2023" ~ -1,
+      .default = 0
+      ),
+    cc_24.25_23.24 = case_when(
+      data_schoolyear == "2024-2025" ~ 1,
+      data_schoolyear == "2023-2024" ~ -1,
+      .default = 0
+      )
+    ) |> 
+  
+  
+  summarise(across(where(is.numeric), list(
+    `22.23-21.22` = ~ sum(.x*cc_22.23_21.22),
+    `23.24-22.23` = ~ sum(.x*cc_23.24_22.23),
+    `24.25-23.24` = ~ sum(.x*cc_24.25_23.24)
+    )), .by = school_id) |> 
+  
+  pivot_longer(where(is.numeric)) |>
+  separate(name, c("variable", "years"), sep = "_") |> 
+  arrange(years, variable) |> 
+  mutate(years = fct_inorder(years)) |> 
+  filter(variable!= "cc") |> 
+  droplevels()
+```
+
+```{r}
+yoy_changes <- split(school_change, school_change$variable) |> 
+  map(~{
+    geepack::geeglm(
+      value ~ years,
+      data  = .x,
+      id    = school_id,
+      waves = years
+      )
+    }) |> 
+  
+  map_dfr(~{
+    emmeans::emmeans(.x, ~ years, infer = TRUE) |> 
+      data.frame()
+    }, .id = 'variable')
+
+```
+
+```{r}
+openxlsx::read.xlsx(
+  yoy_changes |> 
+  separate(years, c("to", "from"), sep = "-") |> 
+  mutate(
+    years = glue::glue(
+      "from 20{gsub('.', '-20', from, fixed = TRUE)} to 20{gsub('.', '-20', to, fixed = TRUE)}"
+      ), 
+    change = emmean,
+    .after = 1, 
+    .keep = "unused"
+    ) |> 
+  openxlsx::write.xlsx(
+    nested_here("output", "tables", "t1_yoy_changes.xlsx"),
+    asTable = TRUE
+    ),
+  nested_here("output", "tables", "t1_yoy_changes.xlsx")
+  )
+```
+
+
+```{r}
+yoy_changes |> 
+  ggplot(aes(
+    variable, emmean, group = years, 
+    ymin = lower.CL, ymax = upper.CL, 
+    color = factor(I(p.value <= 0.05)))
+    ) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_pointrange(size = 0.3) +
+  # geom_linerange(position = position_dodge(width = 0.2)) +
+  # facet_wrap(variable ~ ., scales = "free") +
+  facet_grid(. ~ years) +
+  coord_flip() +
+  theme(legend.position = "bottom")
+  
+```
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
+```{r, eval = FALSE}
+source(nested_here("R", "DESCRIBE_SCHOOLS.R"))
+```
+
+Results preview:
+
+```{r}
+find_written_fnames(nested_here("R", "DESCRIBE_SCHOOLS.R")) |> 
+  read_table() |> 
+  map(head, 10) |> 
+  map(knitr::kable, digits = 3) |> 
+  walk(print)
+```
+
+
+# Utilization Detail
+
+```{r}
+tableby_with <- function(df, ...) {
+  arsenal::tableby(
+    ...,
+    data = df
+    )
+}
+```
+
+```{r, eval = FALSE}
+source(nested_here("R", "DESCRIBE_UTILIZATION.R"))
+```
+
+```{r}
+find_written_fnames(nested_here("R", "DESCRIBE_UTILIZATION.R")) |> 
+  read_table() 
+```
+
+
+
+
+What predicts utilization? Poisson (or similar) for inhaler uses, 
+with a student-time (in program) offset. 
+Adjust for school-level chars. 
+
+- [ ] tabulate uses per school per year
+
+```{r}
+
+```
+
+
+
+
+
+
+
+- [ ] calculate student-program-time per school per year 
+      (time btw program implementation and end of school year)
+- [ ] calculate use rate per school per year
+- [ ] plot 
+    - [ ] scatter: rate over time by impl date
+- [ ] model uses (count with student-time offset) 
+      as predicted by school demographics,
+      school characteristics, calendar time (school year), time in program
+
+Categorize schools by rate of utilization (quartiles). Categorize 
+schools by outcome rates (quartiles). Tabulate, plot by year. 
+
+
+# Student Outcomes
+
+
+Describe trends in student outcomes (student group level) 
+over time (asthma, 504 plans, ieps, attendance).
+Allow for demog-by-outcome interaction terms.
+
+
+# Outcomes x Utilization
+
+
+Latent class analysis/latent transition analysis. Categorize by low/high utilizers 
+and low/high need. 
+
+Describe trends in outcomes as predicted by time-in-program, utilization 
+(treat as time-varying exposure?). Causal analysis w 
+time-varying covariates (confounders): use IPTW for utilization?
+
+
+
+
+# Write Results
+
+```{r}
+out_tables <- list(
+  About = t(data.frame(
+    Date   = Sys.Date(),
+    Author = "Rachel Lane",
+    Title  = "SOW 2 Tables"
+  )) |> 
+  as.data.frame() |> 
+  set_names("value") |> 
+  rownames_to_column("name")
+  )
+out_tables[["About"]] <- rbind(
+  out_tables[["About"]],
+  params |> 
+    keep_at(~ grepl("raw", .x)) |> 
+    set_names_from_child("clean_name") |> 
+    map_dfr(~data.frame(
+      name = "Data Sources",
+      value = glue::glue("File: {.x$file}. Sheet: {coalesce(.x$sheet, '1')}. Box file ID: {.x$box_id}")
+      )))
+
+```
+
+```{r}
+for (f in list.files(
+  nested_here("output", "tables"),
+  "sow3"
+  )) {
+  d <- read_rds(nested_here("output", "tables", f))
+  out_tables[[attr(d, "sheetname")]] <- d
+  out_tables$About <- out_tables$About |> 
+    add_case(
+      name = "Contents",
+      value = glue::glue('Sheet: {attr(d, "sheetname")}. Title: {attr(d, "title")}. Description: {attr(d, "description")}')
+    )
+  }
+
+```
+
+```{r}
+openxlsx::write.xlsx(
+  out_tables,
+  nested_here("output", paste0("sow3_tables_", Sys.Date(), ".xlsx")),
+  asTable = TRUE
+)
+```
+
+
