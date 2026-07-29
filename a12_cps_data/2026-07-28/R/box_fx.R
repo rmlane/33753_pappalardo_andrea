@@ -93,7 +93,7 @@ box_write_if_diff <- function(
     # log with comment
     box_add_to_log(
       data_file = f_name,
-      comment   = comment, 
+      comment   = gsub("\s+", " ", comment), 
       log_file  = log_file,
       dir_id    = dir_id,
       silent    = TRUE

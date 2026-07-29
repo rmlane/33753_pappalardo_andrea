@@ -43,7 +43,7 @@ knitr::opts_chunk$set(
 ```{r, include = FALSE}
 # load libraries
 library(tidyverse)
-
+boxr::box_auth(cache = here::here(".boxr-oauth"))
 ```
 
 ```{r chunk_opts, echo = FALSE, include = FALSE}
@@ -65,23 +65,42 @@ nested_here <- function(
 
 ```{r}
 # # (maybe) create subdirectories for code, data, output
-# walk(nested_here(c("R", "data", "output", "output/tables")), ~{
-#   if(!dir.exists(.x)) {dir.create(.x, recursive = TRUE)}
-#   })
+walk(nested_here(c("R", "data", "output", "output/tables")), ~{
+  if(!dir.exists(.x)) {dir.create(.x, recursive = TRUE)}
+  })
 ```
 
 ```{r}
-# preproc
-# source(nested_here("R", "PREPROC.R"))
+# define custom functions
+nested_here("R", c("box_fx.R")) |> 
+  walk(source)
+
+# set defaults for box functions
+fx_defaults <- list(
+  box_file_attr     = default::default(box_file_attr),
+  box_write_if_diff = default::default(box_write_if_diff)
+  )
+default::default(box_file_attr) <- list(
+  dir_id   = params$analytic_data_dir_id
+  )
+default::default(box_write_if_diff) <- list(
+  log_file = "data_log.csv",
+  dir_id   = params$analytic_data_dir_id
+  )
 ```
 
-```{r}
 
+```{r}
+# fetch external/public data
+nested_here("R", "r01a_FETCH_API_DATA.R")
+nested_here("R", "r01b_PREPROC_CPS_FILE.R")
 ```
 
 
 ```{r}
-
+# reset function defaults 
+default::default(box_file_attr)     <- fx_defaults$box_file_attr
+default::default(box_write_if_diff) <- fx_defaults$box_write_if_diff
 ```
 
 

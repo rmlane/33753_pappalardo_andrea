@@ -1,22 +1,4 @@
-# load library and set box_auth
-library(tidyverse)
-boxr::box_auth(cache = here::here(".boxr-oauth"))
-
-# load externally defined functions
-source(here::here("a12_cps_data/2026-07-28/R/box_fx.R"))
-
-###############################################################################
-# capture starting defaults
-base_defaults <- list(
-  box_write_if_diff = default::default(box_write_if_diff)
-  )
-
-# set defaults for box functions
-analytic_data_box_id                <- "403977851006"
-default::default(box_write_if_diff) <- list(
-  log_file = "data_log.csv",
-  dir_id   = analytic_data_box_id
-  )
+# define API endpoints
 
 chicago_data_api_endpoints <- list(
   sy_2122       = "2dem-8rq7",
@@ -155,6 +137,3 @@ school_chars <- glue::glue(
       "and longitude. Data were fetched and merged on", Sys.Date(), "."
     )
   )
-
-# reset function defaults
-default::default(box_write_if_diff)  <- base_defaults$box_write_if_diff
