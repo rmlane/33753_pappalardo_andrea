@@ -5,12 +5,7 @@ date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
 params:
   parent_dir: "a12_cps_data" # relative to project root
   version: "2026-07-28"
-  school_profile_api_endpoints: 
-    value: 
-      sy_2122: "2dem-8rq7"
-      sy_2223: "9a5f-2r4p"
-      sy_2324: "cu4u-b4d9"
-      sy_2425: "3dhs-m3w4"
+  analytic_data_dir_id: "403977851006"
   raw_data_cps_counts:
     value:
       box_id: "2332953277707"
@@ -25,11 +20,6 @@ params:
     value:
       box_id: "2109640911794"
       filename: "CPS Ramp Up School List_MostUpdated.xlsx"
-      sheet: "Sheet1"
-  raw_data_sy_dates:
-    value:
-      box_id: "2154041346707"
-      filename: "schoolyear_dates.xlsx"
       sheet: "Sheet1"
 # knit: |
 #   (function(input, ...) {
@@ -53,6 +43,7 @@ knitr::opts_chunk$set(
 ```{r, include = FALSE}
 # load libraries
 library(tidyverse)
+
 ```
 
 ```{r chunk_opts, echo = FALSE, include = FALSE}
@@ -85,60 +76,11 @@ nested_here <- function(
 ```
 
 ```{r}
-# fetch school characteristics from chicago data portal
-school_chars <- params$school_profile_api_endpoints |> 
-  map_dfr(~{
-    glue::glue("https://data.cityofchicago.org/api/v3/views/{.x}/query.json") |> 
-      httr::GET() |> 
-      pluck("content") |> 
-      rawToChar() |> 
-      jsonlite::fromJSON() |> 
-      janitor::clean_names() |> 
-      select(school_id, short_name, primary_category, matches("(lat)|(long)|(coord)"))
-  }) |> 
-  mutate(
-    school_match_name = gsub("_", "", snakecase::to_screaming_snake_case(short_name)),
-    grade_level       = fct_collapse(
-      primary_category,
-      "Elementary/Middle School" = c("ES", "MS"),
-      "High School"              = c("HS")
-      )
-    ) |> 
-  distinct()
+
 ```
 
-```{r}
-# fetch city region boundaries from chicago data portal; merge to schools by location
-school_chars <- httr2::request("https://data.cityofchicago.org/api/v3/views/spyv-p8fk/query.json") |> 
-  httr2::req_perform() |> 
-  httr2::resp_body_json() |>
-  enframe() |> 
-  mutate(
-    region_name = unlist(map(value, ~ pluck(.x, "region_nam"))),
-    geom        = map(value, ~{
-      .x |> 
-        pluck("the_geom") |>
-        pluck("coordinates") |> 
-        unlist() |> 
-        matrix(byrow = TRUE, ncol = 2) |> 
-        as.data.frame() |> 
-        sf::st_as_sf(coords = c("V1", "V2")) |> 
-        sf::st_combine() |>  
-        sf::st_cast("POLYGON")
-      }),
-    
-    schools = map(geom, ~{
-      sf::st_intersection(
-        school_chars |> 
-          sf::st_as_sf(coords = c("school_longitude", "school_latitude")),
-        .x
-        ) |> 
-        sf::st_drop_geometry()
-      })
-  ) |> 
-  select(schools, region_name) |> 
-  unnest(schools)
 
+```{r}
 
 ```
 
