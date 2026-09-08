@@ -12,3 +12,9 @@
 data/
 data-raw/
 C:/Users/rlane7/Documents/Clients/33753_pappalardo_andrea/.boxr-oauth
+a12_cps_data/2026-04-16/data/models/final_mods.rds
+a12_cps_data/2026-04-16/data/models/prelim_mods_within.rds
+a12_cps_data/2026-04-16/data/models/prelim_mods_within_numtime.rds
+a12_cps_data/2026-04-16/data/models/prelim_mods_within_time.rds
+a12_cps_data/2026-07-28/output/iptw_drop_mods.rds
+a12_cps_data/2026-07-28/output/iptw_drop_mods_nb.rds

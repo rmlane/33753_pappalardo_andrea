@@ -6,6 +6,7 @@ params:
   parent_dir: "a12_cps_data" # relative to project root
   version: "2026-07-28"
   analytic_data_dir_id: "403977851006"
+  preproc: false
   raw_data_cps_counts:
     value:
       box_id: "2332953277707"
@@ -21,6 +22,11 @@ params:
       box_id: "2109640911794"
       filename: "CPS Ramp Up School List_MostUpdated.xlsx"
       sheet: "Sheet1"
+  raw_data_eji:
+    value:
+      box_id: "2237279411094"
+      filename: "CPS_EJI_Excel.xls"
+      sheet: "AllCPS2122_Merge"
 # knit: |
 #   (function(input, ...) {
 #       rmarkdown::render(
@@ -38,6 +44,8 @@ knitr::opts_chunk$set(
   echo    = FALSE, eval    = TRUE, 
   message = FALSE, warning = FALSE
   )
+
+params <- params
 ```
 
 ```{r, include = FALSE}
@@ -74,7 +82,10 @@ walk(nested_here(c("R", "data", "output", "output/tables")), ~{
 # define custom functions
 nested_here("R", c("box_fx.R")) |> 
   walk(source)
+```
 
+
+```{r}
 # set defaults for box functions
 fx_defaults <- list(
   box_file_attr     = default::default(box_file_attr),
@@ -85,205 +96,111 @@ default::default(box_file_attr) <- list(
   )
 default::default(box_write_if_diff) <- list(
   log_file = "data_log.csv",
-  dir_id   = params$analytic_data_dir_id
+  dir_id   = params$analytic_data_dir_id,
+  force    = FALSE
   )
 ```
 
 
-```{r}
+```{r, eval = FALSE, include = FALSE}
 # fetch external/public data
-nested_here("R", "r01a_FETCH_API_DATA.R")
-nested_here("R", "r01b_PREPROC_CPS_FILE.R")
+source(nested_here("R", "r01a_FETCH_API_DATA.R"))
+
+# reformat data extract from cps; tabulate at school and schoolyear levels
+source(nested_here("R", "r01b_PREPROC_CPS_FILE.R"))
+
+# prepare wave assignments
+source(nested_here("R", "r01c_PREPROC_WAVES.R"))
+
+# prepare EJI RPL SER variable
+source(nested_here("R", "r01d_PREPROC_EJI.R"))
+
+# count inhaler incidents
+source(nested_here("R", "r01e_PREPROC_UTILIZATION.R"))
+
+# combine data sources into analytic dataset
+source(nested_here("R", "r02_MERGE_DATA_SOURCES.R"))
 ```
-
-
-```{r}
-# reset function defaults 
-default::default(box_file_attr)     <- fx_defaults$box_file_attr
-default::default(box_write_if_diff) <- fx_defaults$box_write_if_diff
-```
-
-
 
 
 
 # Describe School Chars by Year
 
 ```{r}
-schools <- read_rds(nested_here("data/schools_analytic.rds")) 
+schools <- read_rds(nested_here("data/cps_schools_analytic.rds")) 
 ```
 
+
+```{r, include = FALSE}
+# library(arsenal)
+source(nested_here("R", "r04a_DESCRIBE_SCHOOLS.R"))
+source(nested_here("R", "r04b_DESCRIBE_WAVES.R"))
+source(nested_here("R", "r05_ANNUAL_CHANGE.R"))
+source(nested_here("R", "r10_IPTW_NB.R"))
+```
+
+
 ```{r}
-library(arsenal)
-tableby(
-  data_schoolyear ~ n_schools 
-  + grade_level 
-  + region 
-  + wave 
-  + student_count 
-  + re_majority 
-  + pct_male 
-  + pct_female 
-  + pct_nonbinary 
-  + rpl_ser 
-  + asthma_pct 
-  + food_allergy_pct 
-  + non_food_allergy_pct 
-  + student_504_pct 
-  + iep_pct 
-  + esl_pct 
-  + frm_pct 
-  + homelessness_pct
-  + attendance 
-  + days_per_stu_expected
-  + days_per_stu_present
-  + days_per_stu_absent
-  + attendance_asthma 
-  + days_per_stu_present_asthma
-  + days_per_stu_absent_asthma
-  + n_events
-  + any_events 
-  ,
-  data    = schools,
-  control = tableby.control(
-    test           = FALSE,
-    total          = FALSE,
-    digits.n	     = NA,
-    digits        = 2,
-    numeric.stats  = c("Nmiss", "medianrange", "q1q3",  "meansd")
-    )
+list(
+  "T1a. Schools"           = read_rds(nested_here("output", "describe_schools.rds")),
+  "T1b. Waves"             = read_rds(nested_here("output", "describe_waves.rds")),
+  "T2. Annual Rate Change" = read_rds(nested_here("output", "annual_change.rds"))
   ) |> 
-  summary(text = TRUE) |> 
-  as.data.frame() |>
-  write_rds(nested_here("output", "t1_descriptive.rds"))
-
-read_rds(nested_here("output", "t1_descriptive.rds"))
-```
-
-
-```{r}
-read_rds(nested_here("output", "t1_descriptive.rds")) |> 
+  
   openxlsx::write.xlsx(
-    nested_here("output", "tables", "t1_descriptive.xlsx"),
+    nested_here("output", "tables", glue::glue("{Sys.Date()}_t1_descriptive_and_yoy.xlsx")),
     asTable = TRUE
-    )
+  )
 ```
 
 
-```{r}
-schools |> 
-  select(ends_with("count"), matches("days")) |> 
-  names() |> writeLines(sep = "', '", con = "clipboard")
 
-count_mods <- c('asthma_count', 'food_allergy_count', 'non_food_allergy_count', 
-  'student_504_count', 'iep_count', 'esl_count', 'frm_count', 'homelessness_count') |>
-  set_names() |> 
-  map(~{
-    geepack::geeglm(
-      arsenal::formulize(.x, "data_schoolyear + offset(log(student_count))"),
-      family = poisson(link = "log"),
-      data   = schools,
-      id     = school_id,
-      waves  = data_schoolyear,
-      corstr = "exchangeable"
-      ) 
-  })
-count_mods |> 
-  map(~{
-    emmeans::emmeans(.x, ~ data_schoolyear, offset = log(100), type = "response")
-    })
+
+
+
+
+
+```{r}
+
+
 ```
 
 
-```{r}
-schooldays_mod <- geepack::geeglm(
-  days_per_school_present ~ data_schoolyear + offset(log(days_per_school_expected)),
-      family = poisson(link = "log"),
-      data   = schools |> mutate(days_per_school_present = round(days_per_school_present)),
-      id     = school_id,
-      waves  = data_schoolyear,
-      corstr = "exchangeable"
-      ) 
-emmeans::emmeans(
-  schooldays_mod, 
-  consec ~ data_schoolyear, 
-  offset = log(176), 
-  type = "response"
-  )  
-```
+
+
+
 
 
 ```{r}
-schools |> 
-  select(-matches("lastyear")) |> 
-  relocate(attendance, student_count, matches("days_per_sch"))
+# read_rds(nested_here("output", "t1_descriptive.rds")) |> 
+#   openxlsx::write.xlsx(
+#     nested_here("output", "tables", "t1_descriptive.xlsx"),
+#     asTable = TRUE
+#     )
 ```
 
 
 
 ```{r}
-'days_per_stu_expected', 'days_per_stu_present', 'days_per_stu_absent', 'days_per_school_expected', 'days_per_school_present', 'days_per_school_absent', 'days_per_stu_present_asthma', 'days_per_stu_absent_asthma', 'impl_days', 'days_per_stu_expected.lastyear', 'days_per_stu_present.lastyear', 'days_per_stu_absent.lastyear', 'days_per_school_expected.lastyear', 'days_per_school_present.lastyear', 'days_per_school_absent.lastyear', 'days_per_stu_present_asthma.lastyear', 'days_per_stu_absent_asthma.lastyear', 'impl_days.lastyear'
+read_rds(nested_here("output", "yoy_unadj_rates.Rds")) |> 
   
-  
+  filter(variable == "asthma_count") |> 
+
 ```
 
 
 
 
 ```{r}
-school_change <- schools |>
-  select(-matches("lastyear")) |> 
-  rename_with(~ gsub("_", "", .x), where(is.numeric)) |> 
-  mutate(
-    cc_22.23_21.22 = case_when(
-      data_schoolyear == "2022-2023" ~ 1,
-      data_schoolyear == "2021-2022" ~ -1,
-      .default = 0
-      ),
-    cc_23.24_22.23 = case_when(
-      data_schoolyear == "2023-2024" ~ 1,
-      data_schoolyear == "2022-2023" ~ -1,
-      .default = 0
-      ),
-    cc_24.25_23.24 = case_when(
-      data_schoolyear == "2024-2025" ~ 1,
-      data_schoolyear == "2023-2024" ~ -1,
-      .default = 0
-      )
-    ) |> 
+enframe(unlist(yoy_change$offset), name = "variable", value = "rate_offset"),
+  by = "variable"
+  ) |> 
+  relocate(rate_offset, .after = variable) |> 
+  select(-any_of(c("null", "t.ratio", "p.value")))
   
-  
-  summarise(across(where(is.numeric), list(
-    `22.23-21.22` = ~ sum(.x*cc_22.23_21.22),
-    `23.24-22.23` = ~ sum(.x*cc_23.24_22.23),
-    `24.25-23.24` = ~ sum(.x*cc_24.25_23.24)
-    )), .by = school_id) |> 
-  
-  pivot_longer(where(is.numeric)) |>
-  separate(name, c("variable", "years"), sep = "_") |> 
-  arrange(years, variable) |> 
-  mutate(years = fct_inorder(years)) |> 
-  filter(variable!= "cc") |> 
-  droplevels()
 ```
 
-```{r}
-yoy_changes <- split(school_change, school_change$variable) |> 
-  map(~{
-    geepack::geeglm(
-      value ~ years,
-      data  = .x,
-      id    = school_id,
-      waves = years
-      )
-    }) |> 
-  
-  map_dfr(~{
-    emmeans::emmeans(.x, ~ years, infer = TRUE) |> 
-      data.frame()
-    }, .id = 'variable')
 
-```
 
 ```{r}
 openxlsx::read.xlsx(

@@ -115,7 +115,7 @@ the causal effect of A on Y per stratum of W."  [@Mortimer2005]
 ## Step 1: Weights
 
 "The treatment model can be defined as an association
-model that ‘‘predicts’’ use of rescue medication as
+model that "predicts" use of rescue medication as
 some function of confounders." [@Mortimer2005]
 
 First, calculate stabilized IPTW: "(marginal probability/conditional probability) or P(A)/P(A|W)" [@Mortimer2005]

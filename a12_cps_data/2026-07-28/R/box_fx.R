@@ -1,3 +1,27 @@
+# for merging across files
+standardize_school_names <- function(vec) {
+  v2 <- vec
+  
+  v2 <- gsub("0 Pilot", "", v2)
+  v2 <- snakecase::to_snake_case(v2)
+  v2 <- gsub("_", "", v2)
+  
+  case_when(
+    tolower(v2) == "cant" ~ "canty",
+    tolower(v2) == "kenwood" ~ "kenwoodhs",
+    tolower(v2) == "lindbloom" ~ "lindblomhs",
+    toupper(v2) %in% c("MULTICULTURALARTSHIGHSCHOOL",	"MULTICULTURALARTSHS") ~
+                       "MULTICULTURALARTSHS",
+    toupper(v2) %in% c("COLLINSHS",	"COLLINSSTEAMHS") ~ 
+                       "COLLINSHS",
+    toupper(v2) %in% c("NORTHWESTECC", "CATALPA") ~ "CATALPA",
+    toupper(v2) %in% c("LINCOLNPARKELC", "FISHER") ~ "FISHER",
+    .default = v2
+    ) |> 
+    toupper()
+}
+
+
 # get attributes of a file in a location on box (if it exists)
 box_file_attr <- function(f_name, dir_id) {
   f_list <- boxr::box_ls(dir_id = dir_id)
@@ -73,7 +97,8 @@ equal_dfs <- function(a, b) {
 # if not, write new version and log the change
 box_write_if_diff <- function(
     object, f_name, dir_id, 
-    comment, log_file
+    comment, log_file, 
+    force = FALSE
     ) {
   
   # compare old and new data
@@ -87,13 +112,13 @@ box_write_if_diff <- function(
   }
   
   # (maybe) write to file
-  if(has_changed) {
+  if(has_changed | force) {
     boxr::box_write(new, file_name = f_name, dir_id = dir_id)
     
     # log with comment
     box_add_to_log(
       data_file = f_name,
-      comment   = gsub("\s+", " ", comment), 
+      comment   = gsub("\\s+", " ", comment), 
       log_file  = log_file,
       dir_id    = dir_id,
       silent    = TRUE

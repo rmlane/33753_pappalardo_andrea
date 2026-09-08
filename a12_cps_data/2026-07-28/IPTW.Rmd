@@ -1,9 +1,186 @@
-176 student-days -- use as baseline
 
+Marginal effects
+
+```{r}
+
+
+emmeans::emmeans(
+  attd_mod_best,
+  poly ~ event_rate,
+  at = list(event_rate = quantile())
+  |> 
+  summary() |> 
+  pluck("terms")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+176 student-days -- use as baseline
 
 modify in descriptive tables
 
 comments -- randomized trials in survey design
+
+```{r}
+read_rds(nested_here("data", "iptw_weights_nb.rds")) |>  
+  ggplot(aes(iptw_stab)) +
+  geom_histogram()
+
+```
+
+
+
+```{r}
+read_rds(nested_here("data", "iptw_weights_nb.rds")) |> 
+  ggplot(aes(iptw_stab_trunc)) +
+  geom_histogram()
+```
+
+
+```{r}
+read_rds(nested_here("data", "iptw_weights.rds")) |> 
+  filter(iptw_stab > 10)
+```
+
+marginal: 
+
+```{r}
+util_mod_df |> 
+  ggplot(aes(log(n_events), log(pred_numer))) +
+  geom_jitter() +
+  stat_smooth() +
+  coord_equal()
+```
+
+conditional:
+
+```{r}
+util_mod_df |> 
+  ggplot(aes(log(n_events), log(pred_denom))) +
+  geom_jitter() +
+  stat_smooth() +
+  coord_equal()
+```
+
+
+```{r}
+summary(iptw_denom_best)
+library(geepack)
+
+
+util_mod_df$iptw_predict_conditional <- predict(iptw_denom_best, type = "response")
+```
+
+```{r}
+nd <- util_mod_df |> 
+  summarise(
+    n_schools = n(),
+    across(where(is.numeric), median, na.rm = TRUE),
+    .by = c(
+      data_schoolyear,
+      grade_level,
+      impl_schoolyear,
+      re_majority,
+      impl_days
+    )
+  ) |> 
+  mutate(impl_student_days = 1000*176) |> 
+  select(-impl_days) |> 
+  mutate(group = factor(1:n())) |> 
+  merge(data.frame(impl_days = 0:365), by = NULL)
+
+nd$pred <- predict(
+  iptw_denom_best,
+  newdata = nd,
+  type = "response"
+)
+
+
+nd |> 
+  ggplot(aes(impl_days, pred, group = group)) +
+  # geom_point(alpha = 0.5) +
+  # stat_smooth()
+  geom_line() +
+  facet_grid(data_schoolyear ~ impl_schoolyear)
+```
+
+```{r}
+summary(iptw_denom_best)
+```
+
+
+```{r}
+emmeans::emmeans(
+  iptw_denom_best, 
+  pairwise ~ grade_level, 
+  type    = "response",
+  weights = "cells",
+  offset  = log(1000*176)
+  )
+x_quantiles <- util_mod_df |> 
+  select(where(is.numeric)) |> 
+  map(quantile, na.rm = TRUE) |> 
+  map(as.numeric) |> 
+  map(round, 6)
+
+
+emmeans::emmeans(
+  iptw_denom_best, 
+  pairwise ~ asthma_pct, 
+  type    = "response",
+  weights = "cells",
+  offset  = log(1000*176),
+  at      = x_quantiles["asthma_pct"]
+  )
+
+
+emmeans::emmeans(
+  iptw_denom_best, 
+  poly ~ impl_days, 
+  type    = "response",
+  weights = "cells",
+  offset  = log(1000*176),
+  at = list(impl_days = sort(unique(util_mod_df$impl_days)))
+  )
+```
+
+
+
+```{r}
+emmeans::emmeans(
+  iptw_denom_best, 
+  ~ impl_days, 
+  type    = "response",
+  weights = "cells",
+  offset  = log(1000*176),
+  at      = list(impl_days = 1:50)
+  ) |> 
+  
+  data.frame() |> 
+  head()
+```
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -266,25 +443,93 @@ summary(m_iptw_denom <- geepack::geeglm(
 ```
 
 ```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+)
+
+util_mod_df |> 
+  mutate(
+    last_schoolyear = fct_recode(
+      data_schoolyear,
+      "2022-2023" = "2023-2024",
+      "2023-2024" = "2024-2025",
+      "2024-2025" = "2025-2026"
+      )
+  ) |> 
+  droplevels() |> 
+  select(last_schoolyear) |> 
+  summary()
+```
+
+
+```{r}
+geepack::geeglm(
+  n_events ~ data_schoolyear + offset(log(impl_student_days)),
+  family = poisson(link = "log"),
+  data   = util_mod_df,
+  id     = school_id,
+  waves  = data_schoolyear,
+  corstr = "exchangeable"
+)
+```
+
+
+```{r}
 # look for non-linear terms
-# library(mgcv)
-# summary(gam_mod <- gam(
-#   any_events_binary ~ data_schoolyear
-#     + s(student_count)
-#     + re_majority + grade_level + wave
-#     + s(pct_male)
-#     + s(rpl_ser)
-#     + s(impl_days, k = 8)
-#     + s(asthma_pct)
-#     + s(asthma_pct.lastyear)
-#     + s(student_504_pct)
-#     + s(iep_pct)
-#     + s(esl_pct)
-#     + s(frm_pct)
-#     + s(homelessness_pct),
-#   family = binomial(link = "logit"),
-#   data   = schools_mod
-# ))
+library(mgcv)
+geepack::geeglm(
+  n_events ~ data_schoolyear +
+    + ns(student_count)
+    + re_majority 
+    + grade_level 
+    + wave
+    + ns(pct_male)
+    + ns(rpl_ser)
+    + ns(impl_days, k = 8)
+    + ns(asthma_pct)
+    + ns(asthma_pct.lastyear)
+    + ns(student_504_pct)
+    + ns(iep_pct)
+    + ns(esl_pct)
+    + ns(frm_pct)
+    + ns(homelessness_pct),
+    
+    
+    
+    
+    offset(log(impl_student_days)),
+  family = poisson(link = "log"),
+  data   = util_mod_df,
+  id     = school_id,
+  waves  = data_schoolyear,
+  corstr = "exchangeable"
+)
+
+gam(
+  any_events_binary ~ data_schoolyear
+    + s(student_count)
+    + re_majority + grade_level + wave
+    + s(pct_male)
+    + s(rpl_ser)
+    + s(impl_days, k = 8)
+    + s(asthma_pct)
+    + s(asthma_pct.lastyear)
+    + s(student_504_pct)
+    + s(iep_pct)
+    + s(esl_pct)
+    + s(frm_pct)
+    + s(homelessness_pct),
+  family = poisson(),
+  data   = util_mod_df
+))
 ```
 ```{r}
 # summary(m_iptw_denom <- geepack::geeglm(

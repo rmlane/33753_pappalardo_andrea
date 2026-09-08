@@ -1,0 +1,11 @@
+implementation component: 
+
+* compare alternative implementation strategies? 
+* "method for measuring implementation success or failure" [https://www.sciencedirect.com/science/article/pii/S0190740913003083]
+
+* cost of implementation: training, staff time, infrastructure
+
+
+
+
+outcome: health measure? process measure?

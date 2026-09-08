@@ -69,6 +69,32 @@ sy_dates <- httr::GET(
 
 ###############################################################################
 
+# fetch city region boundaries from chicago data portal
+chi_regions <- glue::glue(
+  "https://data.cityofchicago.org/api/v3/views/{x}/query.json",
+  x = chicago_data_api_endpoints$region_shapes
+) |> 
+  httr2::request() |> 
+  httr2::req_perform() |> 
+  httr2::resp_body_json() |>
+  enframe() |> 
+  
+  pull("value") |> 
+  
+  map_dfr( ~{
+    data.frame(
+      region_name = .x$region_nam,
+      geo         = .x$the_geom$coordinates[[1]][[1]] |>
+        map(set_names,  c("long", "lat")) |> 
+        map_dfr(data.frame) |> 
+        sf::st_as_sf(coords = c("long", "lat")) |>
+        sf::st_combine() |> 
+        sf::st_cast("POLYGON")
+    )
+  }) |> 
+  sf::st_as_sf() |> 
+  sf::st_set_crs("WGS84")
+
 # fetch school characteristics from chicago data portal
 school_chars <- chicago_data_api_endpoints |> 
   keep_at(~ grepl("^sy", .x)) |> 
@@ -82,49 +108,26 @@ school_chars <- chicago_data_api_endpoints |>
       select(school_id, short_name, primary_category, matches("(lat)|(long)|(coord)"))
   }) |> 
   mutate(
-    school_match_name = gsub("_", "", snakecase::to_screaming_snake_case(short_name)),
+    school_match_name = standardize_school_names(short_name),
     grade_level       = fct_collapse(
       primary_category,
       "Elementary/Middle School" = c("ES", "MS"),
       "High School"              = c("HS")
     )
   ) |> 
-  distinct()
-
-# fetch city region boundaries from chicago data portal; merge to schools by location
-school_chars <- glue::glue(
-  "https://data.cityofchicago.org/api/v3/views/{x}/query.json",
-  x = chicago_data_api_endpoints$region_shapes
-  ) |> 
-  httr2::request() |> 
-  httr2::req_perform() |> 
-  httr2::resp_body_json() |>
-  enframe() |> 
-  mutate(
-    region_name = unlist(map(value, ~ pluck(.x, "region_nam"))),
-    geom        = map(value, ~{
-      .x |> 
-        pluck("the_geom") |>
-        pluck("coordinates") |> 
-        unlist() |> 
-        matrix(byrow = TRUE, ncol = 2) |> 
-        as.data.frame() |> 
-        sf::st_as_sf(coords = c("V1", "V2")) |> 
-        sf::st_combine() |>  
-        sf::st_cast("POLYGON")
-    }),
-    
-    schools = map(geom, ~{
-      sf::st_intersection(
-        school_chars |> 
-          sf::st_as_sf(coords = c("school_longitude", "school_latitude")),
-        .x
-      ) |> 
-        sf::st_drop_geometry()
-    })
-  ) |> 
-  select(schools, region_name) |> 
-  unnest(schools) |> 
+  distinct() |> 
+  
+  # make geo points
+  sf::st_as_sf(coords = c("school_longitude", "school_latitude")) |>
+  sf::st_set_crs("WGS84") |>
+  
+  # match to regions by location
+  sf::st_join(chi_regions) |>
+  
+  # drop geo information
+  sf::st_drop_geometry()  |> 
+  
+  distinct(school_id, school_match_name, grade_level, region_name) |> 
   
   # (maybe) write to file
   box_write_if_diff(
@@ -134,6 +137,6 @@ school_chars <- glue::glue(
       " and 2024-2025. School profiles were downloaded from the Chicago ",
       "Data Portal via API. Chicago planning region shapefiles were downloaded ",
       "from the Chicago Data Portal via API and matched to schools by latitute ",
-      "and longitude. Data were fetched and merged on", Sys.Date(), "."
+      "and longitude using the r sf() package. Data were fetched and merged on", Sys.Date(), "."
     )
   )
