@@ -1,0 +1,22 @@
+# see https://github.com/actions/add-to-project
+# and https://docs.github.com/en/actions/using-workflows
+
+# purpose: automatically add new issues to relevant projects
+
+on:
+  issues:
+    types:
+      - opened
+      - reopened
+
+jobs:
+  add-to-project:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/add-to-project@v1.0.2
+        with:
+          # You can target a project in a different organization
+          # to the issue
+          project-url: https://github.com/users/rmlane/projects/11
+          github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}
+
