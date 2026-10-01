@@ -119,7 +119,7 @@ default::default(box_write_if_diff) <- list(
 # source(nested_here("R", "r01e_PREPROC_UTILIZATION.R"))
 # 
 # # combine data sources into analytic dataset
-# source(nested_here("R", "r02_MERGE_DATA_SOURCES.R"))
+source(nested_here("R", "r02_MERGE_DATA_SOURCES.R"))
 ```
 
 

@@ -1,21 +1,29 @@
-
-cps_datasets_raw <- boxr::box_ls(params$analytic_data_dir_id) |> 
-  as.data.frame() |> 
-  filter(
-    name %in% c(
-      "cps_schoolyear_dates.csv",
-      "cps_school_characteristics.csv",
-      "cps_school_eji.csv",
-      "cps_school_waves.csv",
-      "cps_school_utilization_counts.csv",
-      "cps_school_level_counts.csv",
-      "cps_student_crosstabs.csv"
+if(file.exists(nested_here("data", "cps_datasets_raw.rds"))) {
+  cps_datasets_raw <- read_rds(nested_here("data", "cps_datasets_raw.rds"))
+  } else {
+    cps_datasets_raw <- boxr::box_ls(params$analytic_data_dir_id) |>
+      as.data.frame() |>
+      filter(
+        name %in% c(
+          "cps_schoolyear_dates.csv",
+          "cps_school_characteristics.csv",
+          "cps_school_eji.csv",
+          "cps_school_waves.csv",
+          "cps_school_utilization_counts.csv",
+          "cps_school_level_counts.csv",
+          "cps_student_crosstabs.csv"
+          )
       )
-  )
+    
+    cps_datasets_raw <- cps_datasets_raw$id |>
+      set_names(cps_datasets_raw$name) |>
+      map(boxr::box_read_csv)
+    
+    cps_datasets_raw |>
+      write_rds(nested_here("data", "cps_datasets_raw.rds"))
+}
 
-cps_datasets_raw <- cps_datasets_raw$id |>
-  set_names(cps_datasets_raw$name) |> 
-  map(boxr::box_read_csv)
+cps_datasets_raw <- read_rds(nested_here("data", "cps_datasets_raw.rds"))
 
 cps_data <- cps_datasets_raw |> 
   set_names(
@@ -123,42 +131,41 @@ cps_df_all <- full_join(
   cps_time_inv,
   cps_annual,
   by = "school_match_name"
-  ) |> 
+) |> 
   
   arrange(school_id, data_schoolyear) |> 
   
   # calculate time since implementation for each school by year
   mutate(
-    sy_days          = difftime(sy_day20, sy_end, units = "days") + 20,
-    impl_days        = difftime(sy_end, impl_date, units = "days"),
+    sy_days          = as.numeric(difftime(sy_day20, sy_end, units = "days")) + 20,
+    impl_days        = as.numeric(difftime(sy_end, impl_date, units = "days")),
     impl_days        = unlist(map(impl_days, ~ max(.x, 0))),
     impl_binary      = as.numeric(impl_days > 0),
     impl_sy_exposure = case_when(
       impl_days < sy_days ~ (impl_days / sy_days),
       .default = 1
-      ),
-    impl_years = cumsum(impl_binary) - 1,
-    .by = school_id,
+    ),
+    impl_years  = cumsum(impl_binary) - 1,
+    .by         = school_id,
     .before     = student_count
-    )
+  )
 
 # limit to relevant
-cps_df_analytic <- cps_df_all |> 
-  filter(!is.na(student_count)) |> 
-  
+cps_df_all |> 
+  filter(!is.na(student_count)) |>
   mutate(n_schools = "Overall") |> 
-  
-  box_write_if_diff(
-    "cps_schools_analytic.csv",
-    comment = paste(
-      "Full analytic dataset. Includes all schools and schoolyears in",
-      "the CPS data extract as of ", Sys.Date(), ". CPS data are merged with",
-      "EJI value, region, implementation information, and inhaler utilization",
-      "counts."
-      )
-  ) |> 
-  
   write_rds(nested_here("data", "cps_schools_analytic.rds"))
+  
+  # box_write_if_diff(
+  #   "cps_schools_analytic.csv",
+  #   comment = paste(
+  #     "Full analytic dataset. Includes all schools and schoolyears in",
+  #     "the CPS data extract as of ", Sys.Date(), ". CPS data are merged with",
+  #     "EJI value, region, implementation information, and inhaler utilization",
+  #     "counts."
+  #     )
+  # ) |> 
+  
 
 
 
