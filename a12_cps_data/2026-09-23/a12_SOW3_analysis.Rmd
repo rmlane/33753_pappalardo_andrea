@@ -1,0 +1,401 @@
+---
+title: "CPS Data Summary: Longitudinal Outcomes"
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+params:
+  parent_dir: "a12_cps_data" # relative to project root
+  version: "2026-09-23"
+  analytic_data_dir_id: "403977851006"
+  preproc: false
+  raw_data_cps_counts:
+    value:
+      box_id: "2482165585966"
+      filename: "UIC Asthma Status Data Albuterol SoW Shell_09172026.xlsx"
+      sheet: "SY22, 23, 24, 25 and 26 Asthma "
+  raw_data_utilization:
+    value: 
+      box_id: '2173811730030'
+      filename: "CPS 2023-2025 utilization recode_3-23.xlsx"
+      sheet: "Utilization Data"
+  raw_data_waves:
+    value:
+      box_id: "2109640911794"
+      filename: "CPS Ramp Up School List_MostUpdated.xlsx"
+      sheet: "Sheet1"
+  raw_data_eji:
+    value:
+      box_id: "2237279411094"
+      filename: "CPS_EJI_Excel.xls"
+      sheet: "AllCPS2122_Merge"
+# knit: |
+#   (function(input, ...) {
+#       rmarkdown::render(
+#         input, 
+#         output_file   = paste0("33753_cps_data_", Sys.Date()),
+#         output_dir    = file.path(dirname(input), "output"),
+#         envir         = globalenv()
+#       )
+#   })
+---
+
+```{r K, echo = FALSE, include = FALSE}
+# define document options
+knitr::opts_chunk$set(
+  echo    = FALSE, eval    = TRUE, 
+  message = FALSE, warning = FALSE
+  )
+
+params <- params
+```
+
+```{r, include = FALSE}
+# load libraries
+library(tidyverse)
+boxr::box_auth(cache = here::here(".boxr-oauth"))
+```
+
+```{r chunk_opts, echo = FALSE, include = FALSE}
+# define formatting options
+options(knitr.kable.NA = '')
+thm <- theme_set(theme_bw())
+```
+
+```{r}
+# function for easier navigation of relative refs
+nested_here <- function(
+    ...,    
+    parent_dir = params$parent_dir, 
+    version    = params$version
+    ) {
+    here::here(parent_dir, version, ...)
+}
+```
+
+```{r}
+# # (maybe) create subdirectories for code, data, output
+walk(nested_here(c("R", "data", "output", "output/tables")), ~{
+  if(!dir.exists(.x)) {dir.create(.x, recursive = TRUE)}
+  })
+```
+
+```{r}
+# define custom functions
+nested_here("R", c("box_fx.R")) |> 
+  walk(source)
+```
+
+
+```{r}
+# set defaults for box functions
+fx_defaults <- list(
+  box_file_attr     = default::default(box_file_attr),
+  box_write_if_diff = default::default(box_write_if_diff)
+  )
+default::default(box_file_attr) <- list(
+  dir_id   = params$analytic_data_dir_id
+  )
+default::default(box_write_if_diff) <- list(
+  log_file = "data_log.csv",
+  dir_id   = params$analytic_data_dir_id,
+  force    = FALSE
+  )
+```
+
+
+```{r, eval = FALSE, include = FALSE}
+# # fetch external/public data
+# source(nested_here("R", "r01a_FETCH_API_DATA.R"))
+# # 
+# # # reformat data extract from cps; tabulate at school and schoolyear levels
+# source(nested_here("R", "r01b_PREPROC_CPS_FILE.R"))
+# # 
+# # # prepare wave assignments
+# source(nested_here("R", "r01c_PREPROC_WAVES.R"))
+# # 
+# # # prepare EJI RPL SER variable
+# source(nested_here("R", "r01d_PREPROC_EJI.R"))
+# # 
+# # # count inhaler incidents
+# source(nested_here("R", "r01e_PREPROC_UTILIZATION.R"))
+# 
+# # combine data sources into analytic dataset
+# source(nested_here("R", "r02_MERGE_DATA_SOURCES.R"))
+```
+
+
+
+# Describe School Chars by Year
+
+```{r}
+schools <- read_rds(nested_here("data/cps_schools_analytic.rds")) 
+```
+
+
+```{r, include = FALSE}
+# library(arsenal)
+source(nested_here("R", "r04a_DESCRIBE_SCHOOLS.R"))
+source(nested_here("R", "r04b_DESCRIBE_WAVES.R"))
+source(nested_here("R", "r05_ANNUAL_CHANGE.R"))
+# source(nested_here("R", "r10_IPTW_NB.R"))
+```
+
+
+```{r}
+list(
+  "T1a. Schools"           = read_rds(nested_here("output", "describe_schools.rds")),
+  "T1b. Waves"             = read_rds(nested_here("output", "describe_waves.rds")),
+  "T2. Annual Rate Change" = read_rds(nested_here("output", "annual_change.rds"))
+  ) |> 
+  
+  openxlsx::write.xlsx(
+    nested_here("output", "tables", glue::glue("{Sys.Date()}_t1_descriptive_and_yoy.xlsx")),
+    asTable = TRUE
+  )
+```
+
+
+
+
+
+
+
+
+```{r}
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# read_rds(nested_here("output", "t1_descriptive.rds")) |> 
+#   openxlsx::write.xlsx(
+#     nested_here("output", "tables", "t1_descriptive.xlsx"),
+#     asTable = TRUE
+#     )
+```
+
+
+
+```{r}
+read_rds(nested_here("output", "yoy_unadj_rates.Rds")) |> 
+  
+  filter(variable == "asthma_count") |> 
+
+```
+
+
+
+
+```{r}
+enframe(unlist(yoy_change$offset), name = "variable", value = "rate_offset"),
+  by = "variable"
+  ) |> 
+  relocate(rate_offset, .after = variable) |> 
+  select(-any_of(c("null", "t.ratio", "p.value")))
+  
+```
+
+
+
+```{r}
+openxlsx::read.xlsx(
+  yoy_changes |> 
+  separate(years, c("to", "from"), sep = "-") |> 
+  mutate(
+    years = glue::glue(
+      "from 20{gsub('.', '-20', from, fixed = TRUE)} to 20{gsub('.', '-20', to, fixed = TRUE)}"
+      ), 
+    change = emmean,
+    .after = 1, 
+    .keep = "unused"
+    ) |> 
+  openxlsx::write.xlsx(
+    nested_here("output", "tables", "t1_yoy_changes.xlsx"),
+    asTable = TRUE
+    ),
+  nested_here("output", "tables", "t1_yoy_changes.xlsx")
+  )
+```
+
+
+```{r}
+yoy_changes |> 
+  ggplot(aes(
+    variable, emmean, group = years, 
+    ymin = lower.CL, ymax = upper.CL, 
+    color = factor(I(p.value <= 0.05)))
+    ) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_pointrange(size = 0.3) +
+  # geom_linerange(position = position_dodge(width = 0.2)) +
+  # facet_wrap(variable ~ ., scales = "free") +
+  facet_grid(. ~ years) +
+  coord_flip() +
+  theme(legend.position = "bottom")
+  
+```
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
+```{r, eval = FALSE}
+source(nested_here("R", "DESCRIBE_SCHOOLS.R"))
+```
+
+Results preview:
+
+```{r}
+find_written_fnames(nested_here("R", "DESCRIBE_SCHOOLS.R")) |> 
+  read_table() |> 
+  map(head, 10) |> 
+  map(knitr::kable, digits = 3) |> 
+  walk(print)
+```
+
+
+# Utilization Detail
+
+```{r}
+tableby_with <- function(df, ...) {
+  arsenal::tableby(
+    ...,
+    data = df
+    )
+}
+```
+
+```{r, eval = FALSE}
+source(nested_here("R", "DESCRIBE_UTILIZATION.R"))
+```
+
+```{r}
+find_written_fnames(nested_here("R", "DESCRIBE_UTILIZATION.R")) |> 
+  read_table() 
+```
+
+
+
+
+What predicts utilization? Poisson (or similar) for inhaler uses, 
+with a student-time (in program) offset. 
+Adjust for school-level chars. 
+
+- [ ] tabulate uses per school per year
+
+```{r}
+
+```
+
+
+
+
+
+
+
+- [ ] calculate student-program-time per school per year 
+      (time btw program implementation and end of school year)
+- [ ] calculate use rate per school per year
+- [ ] plot 
+    - [ ] scatter: rate over time by impl date
+- [ ] model uses (count with student-time offset) 
+      as predicted by school demographics,
+      school characteristics, calendar time (school year), time in program
+
+Categorize schools by rate of utilization (quartiles). Categorize 
+schools by outcome rates (quartiles). Tabulate, plot by year. 
+
+
+# Student Outcomes
+
+
+Describe trends in student outcomes (student group level) 
+over time (asthma, 504 plans, ieps, attendance).
+Allow for demog-by-outcome interaction terms.
+
+
+# Outcomes x Utilization
+
+
+Latent class analysis/latent transition analysis. Categorize by low/high utilizers 
+and low/high need. 
+
+Describe trends in outcomes as predicted by time-in-program, utilization 
+(treat as time-varying exposure?). Causal analysis w 
+time-varying covariates (confounders): use IPTW for utilization?
+
+
+
+
+# Write Results
+
+```{r}
+out_tables <- list(
+  About = t(data.frame(
+    Date   = Sys.Date(),
+    Author = "Rachel Lane",
+    Title  = "SOW 2 Tables"
+  )) |> 
+  as.data.frame() |> 
+  set_names("value") |> 
+  rownames_to_column("name")
+  )
+out_tables[["About"]] <- rbind(
+  out_tables[["About"]],
+  params |> 
+    keep_at(~ grepl("raw", .x)) |> 
+    set_names_from_child("clean_name") |> 
+    map_dfr(~data.frame(
+      name = "Data Sources",
+      value = glue::glue("File: {.x$file}. Sheet: {coalesce(.x$sheet, '1')}. Box file ID: {.x$box_id}")
+      )))
+
+```
+
+```{r}
+for (f in list.files(
+  nested_here("output", "tables"),
+  "sow3"
+  )) {
+  d <- read_rds(nested_here("output", "tables", f))
+  out_tables[[attr(d, "sheetname")]] <- d
+  out_tables$About <- out_tables$About |> 
+    add_case(
+      name = "Contents",
+      value = glue::glue('Sheet: {attr(d, "sheetname")}. Title: {attr(d, "title")}. Description: {attr(d, "description")}')
+    )
+  }
+
+```
+
+```{r}
+openxlsx::write.xlsx(
+  out_tables,
+  nested_here("output", paste0("sow3_tables_", Sys.Date(), ".xlsx")),
+  asTable = TRUE
+)
+```
+
+

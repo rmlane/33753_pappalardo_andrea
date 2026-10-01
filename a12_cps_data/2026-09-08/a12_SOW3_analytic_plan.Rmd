@@ -1,0 +1,423 @@
+---
+title: "CPS Longitudinal - Analytic Plan"
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+params:
+  parent_dir: "a12_cps_data" # relative to project root
+  version: "2026-07-22"
+bibliography: "refs.bib"
+knit: |
+  (function(input, ...) {
+      rmarkdown::render(
+        input, 
+        output_file   = paste0("33753_sow3_analytic_plan_", Sys.Date()),
+        output_dir    = file.path(dirname(input), "output"),
+        envir         = globalenv()
+      )
+  })
+---
+
+
+
+
+
+We will calculate stabilized inverse probability of treatment weights (IPTW)
+for the treatment variable of time of program implementation, treating 
+this value as a point treatment variable (since time of implementation was 
+determined at the start of the program period based only on baseline
+characteristics).
+
+<!-- "To increase the association between the numerator and denominator, further stabilizing the weights, one can condition both in the  numerator and denominator of (3) on a set of time-fixed covariates V that are related to A" [but not related to Y]. [ipw: An R Package for Inverse Probability Weighting]-->
+
+Terms in the numerator will include baseline covariates unrelated to the 
+change in attendance at year 1 or at year 2, determined by bivariate hypothesis tests. 
+These variables will not be adjusted for by IPTW, but they may be included 
+in the MSM 
+
+Terms in the denominator will include numerator terms plus potential 
+confounders, including baseline covariates associated with change in attendance.
+
+
+
+Confounders, mediators, moderators:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Process, merge data
+
+## Descriptive Statistics
+
+Univariate, unadjusted, descriptive
+
+* How did demographics change over time?
+* How did asthma change over time? What's associated with asthma?
+* How did utilization change over time? What's associated with utilization?
+* How did attendance change over time? What's associated with attendance?
+
+
+
+
+
+# Marginal Structural Models
+
+The current analysis treats school data as observational and uses a marginal structural model (MSM) framework to quantify the relationship between program implementation (the "exposure") and school attendance (the outcome of interest). We expect program implementation to increase documented asthma prevalence, implicitly increasing appropriate asthma interventions, and consequently increase annual attendance. Stated another way, we expect program implementation to be associated with a decreased dependence of attendance on asthma.
+
+While efforts were made to randomize the order in which the program was introduced, schools were ultimately responsible for their own level of program adoption. Adoption was likely influenced by measured and unmeasured school characteristics, including documented and actual asthma prevalence; adoption also likely influenced documented asthma prevalence and subsequent adoption. 
+
+The MSM approach is appropriate for describing longitudinal observational data; it provides strategies to handle issues of selection bias and time-varying exposures that may be influenced by earlier exposures and other time-varying characteristics [@Faries2010 p. 211-212].
+
+"Intention-to-treat" analysis, which would use intervention group or time since introduction as the exposure variable, wouldn't account for school-specific patterns of program adoption. Traditional longitudinal analyses, such as linear mixed-effects models with time-varying independent variables, wouldn't capture the way adoption, asthma, and attendance may influence each other over time [@Faries2010 p. 211-212].
+
+In MSM, inverse probability of treatment weighting (IPTW) controls for imbalance of school characteristics, including time-varying intervention exposure, and allows for causal inference about treatment effects as if the study were 
+a randomized trial with comparable groups. [@Faries2010 p. 213]. The analysis takes place in two steps. 
+
+
+"In observational studies, factors that influence the exposure
+assignment may also influence the outcome and, therefore,
+may confound the association of interest." [@Mortimer2005]
+
+## Data Preparation
+
+Data were summarized at the school and school-year level. 
+
+Point-in-time variables reported at BEGINNING of school year (day 20): 
+
+* # students enrolled, 
+* demographics, census variables (race/ethnicity, gender, free/reduced lunch, homelessness)
+* IEPs and 504s
+
+Point-in-time variables reported at END of school year (mid-June):
+
+* Asthma counts
+* Allergy counts
+* Cumulative annual attendance (mean of student-level attendance)
+
+
+
+
+
+## Model Formulation
+
+Counterfactuals of interest (Y | a): [@Mortimer2005]
+
+* attendance | utilization
+* attendance | no utilization
+
+Causal effect of interest: Difference in mean attendance at schools that
+did and didn't utilize inhalers, assuming inhaler use is unconfounded
+
+Estimating population-level average causal effect (i.e., population mean attendance when all schools do or do not use inhalers)
+
+
+Where Y is the outcome, A is the treatment/exposure level, and W is the 
+confounder (e.g., symptom level): 
+"In practice, E(Y|A = 1, W = 1) represents the average PEFR
+among children with symptoms who used medication,
+whereas E(Y1|W = 1) represents the average PEFR among
+the children who had prior symptoms had those children also
+taken rescue medication—thus, for some, contrary to fact.
+These conditional expected values are equal only if medication
+use, A, is independent of the set of all counterfactuals (Ya)
+given W (prior symptoms). Under this independence condition,
+E(Y|A,W) = B0 + B1A + B2W is a model wherein B1 can
+be interpreted as the adjusted (pooled) causal effect, that is,
+the causal effect of A on Y per stratum of W."  [@Mortimer2005]
+
+
+
+
+
+
+
+## Step 1: Weights
+
+"The treatment model can be defined as an association
+model that "predicts" use of rescue medication as
+some function of confounders." [@Mortimer2005]
+
+First, calculate stabilized IPTW: "(marginal probability/conditional probability) or P(A)/P(A|W)" [@Mortimer2005]
+
+Numerator: P(A) >> probability of exposure level
+Denominator: P(A|W) >> probability of exposure level given confounders
+
+
+
+
+
+
+For each school year, estimate level of program adoption (binary? rate?) as a function of constant school chars (e.g., grade level) and time-varying factors (school size; documented asthma prevalence; time since intervention introduction).
+
+No dropout weighting, as complete data are available for all schools.
+
+
+
+
+
+
+
+
+
+
+
+## Step 2: GEE
+
+Then, develop a weighted GEE model for the outcome (asthma), with exposure as a time-varying predictor and baseline characteristics as time-invariant predictors. [@Faries2010 p. 213].
+
+
+
+## Model Checking, Sensitivity
+
+To check assumption of unmeasured confounders, use theoretical justification (i.e., choose potentially related vars based on literature). Also consider confounding function/sensitivity parameter. [@Faries2010 p. 214].
+
+To check the assumption of positivity (i.e., all treatment histories are possible for all schools), calculate predicted probabilities of treatment assignment; no probabilities should be 0 or 1. [@Faries2010 p. 214]
+
+
+
+Asthma as time-varying confounder. Consider form:
+
+* Raw asthma rate
+* Change in asthma rate
+
+Attendance as outcome. 
+
+* Schoolwide attendance
+* Attendance among students with asthma
+
+
+
+
+Primary exposure: program intervention
+
+* How did schools implement the program over time?
+* Inhaler utilization events per student-program-time (time centered at program start),
+  predicted by school characteristics, asthma, and calendar time
+* calculate IPTW for utilization intensity predicted by school characteristics, 
+asthma, and calendar time
+
+Primary outcome: attendance
+
+* Does program utilization predict attendance, adjusted for IPTW, asthma, school demog?
+
+
+
+For a specific school: School-wide inhaler use can be said to have a causal effect on attendance (schoolwide OR among students with diagnosed asthma) if attendance would have been different with a different schoolwide inhaler use history, holding all other variables constant. [@Faries2010 p. 212]
+
+At the population (district) level: School-wide inhaler use can be said to have a causal effect on attendance (schoolwide OR among students with diagnosed asthma) if average attendance among students with diagnosed asthma across the district, given a certain level of adoption by all schools, would have been different from average attendance, given a different level of adoption by all schools. [@Faries2010 p. 212]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+look at 
+
+- [ ] assns  between variables during same year
+- [ ] lagged assn between variables during subsequent years
+
+
+
+
+
+after https://www.andrewheiss.com/blog/2020/12/01/ipw-binary-continuous/
+
+(cross-sectional) iptw: 
+
+numer_mod = glm(util ~ 1, data = data)
+numer = dnorm(data$util, predict(numer_nod), sd = numer_mod$residuals)
+
+denom_mod = glm(util ~ demog + asthma, data = data)
+denom = dnorm(data$util, predict(denom_nod), sd = denom_mod$residuals)
+
+data$ipw = numer / denom
+attendance_mod = glm(attendance ~ util, data = data, weights = ipw)
+
+alt: use ipw::ipwpoint()
+
+
+
+
+
+# Difference-in-Differences
+
+@Athey2022
+
+
+
+
+# Missing Data
+
+@King2008 offers an example of using complete reference data to infer 
+missnig categorical characteristics. Distributions of both 
+outcome variables and indicator variables may differ in the observed (complete)
+and inferred (incomplete) subpopulations. 
+
+In the @King2008, treat the cause-of-death value of interest [P(D)] as 
+multinomial. Estimate, e.g., probability of each 
+symptom profile (fully observed var) given observed cause of death (partially observed var):
+
+P(S) = P(S|D)P(D)
+
+Assume P(S|D) are the same across subpopulations. Don't assume P(S), P(D),
+or P(D|S) are the same. Tabulate observed values nonparametrically
+and solve for P(D). Use samples of symptoms, solve, and average. [Applicable
+to uninferrable xtabs?]
+
+# Causal Inference
+
+
+
+
+" Nonadherence is often related to social determinants of health, making it even more important to study nonadherence patterns and to estimate both the ITT effect and the per-protocol effect. " [@RojasSaunero2022]
+
+"In fact, our recommendation is to anticipate as many of these adjacent questions as possible whenever designing a randomized trial of a social intervention, and to collect data so that their effect estimates can be explored and estimated (with additional assumptions) by emulating the adjacent target trials within our conducted trials’ data. Ultimately, the effort to collect rich data in a trial setting can serve as an opportunity to estimate the adapted interventions of treatment strategies beyond those that defined the original trial’s protocol. Note that such data collection requires forethought and at minimum needs to include assessments of the anticipated adapted intervention definitions and associated confounders (9, 15, 16). " [@RojasSaunero2022]
+
+"Broadly speaking, interference means that the intervention in one individual may affect other individuals’ adherence and outcomes. [...] Interference implies there could be many questions of interest, such as direct effects of the intervention, spillover effects, and overall effects (17, 18)" [@RojasSaunero2022]
+
+
+"No interference between units is a component of Rubin's Stable Unit Treatment Value Assumption or SUTVA (Rubin, 1980, 1986). The assumption will be violated in settings in which social interactions allow one individual's exposure or treatment assignment to affect the outcomes of other individuals. " [@Vanderweele2013]
+
+"Since we can rarely observe the same patients under both conditions (even in a crossover randomized controlled trial carryover effects induce systematic differences), the only way to determine causal effects is to compare two groups that are identical in every way except that one group was treated and the other was not. Marginal structural models (as other causal models) attempt to fully adjust for measured confounders to enhance group comparability and estimate causal effects in a similar way [8]" [@Williamson2017]
+
+"Marginal structural models aim to appropriately control for the effects of time-varying confounders that are affected by prior treatment (exposure). Marginal structural models are called marginal because they use the marginal distribution of the treatment (or exposure) variable at any time point to weight its relationship with outcome. Marginal in statistics means ‘unconditional’—i.e. not conditional on other variables, like the probabilities of one variable on the margins of a contingency table of two discrete variables (see below). These models are called structural because models exploring causal relationships are referred to as structural in the econometric and social sciences literature [8]." [@Williamson2017]
+
+"Of the different available methods that have been proposed to address time-varying confounding with marginal structural models [14], inverse-probability-of-treatment weighting (IPTW) is the most commonly used [15]. Marginal structural model estimation via IPTW occurs in two stages (Figure 5). As a preliminary step, researchers choose the time scale, and define time, event, treatment and other covariates, and their relationships (Figures 2 and 4). In the first stage IPTW are calculated; in the second stage the outcome model is fit, including sensitivity analyses that take into account weight distributions." [@Williamson2017]
+
+
+
+
+[@Wal2011]
+
+
+
+
+@Robins2000
+
+"Many considerations influence the selection of one therapy over another. In many settings, more than one therapeutic approach is commonly used. In routine clinical practice, patients receiving one treatment will tend to be different from those receiving another, eg, if one treatment is thought to be better tolerated by elderly patients or more effective for patients who are more seriously ill. This results in a correlation—or confounding—between patient characteristics that affect outcomes and the choice of therapy (often called “confounding by indication”). If observational data obtained from routine clinical practice are examined to compare the outcomes of patients treated with different therapies, the observed difference will be the result of both differing patient characteristics and treatment choice, making it difficult to delineate the true effect of one treatment vs another." [@Haukoos2015]
+
+--
+Estimate propensity score by, e.g., logistic regression. Dependent variable
+is probability that observational unit received treatment.
+
+* Propensity score matching: compare units with similar propensity
+scores but different treatment statuses; analyze as paired
+* Stratification: Categorize based on propensity score and analyze within strata 
+* Adjustment: 
+* IPTW: 
+
+
+
+
+" In the current study, we reverse the direction of the causal effect of interest 
+and focus on the ATE of a non-randomized, latent, multinomial exposure 
+(i.e., a latent class variable) on an observed, binary outcome. " [@Bray2018]
+
+" Critically, if adolescent patterns of reasons for use are associated with later outcomes, even after using causal inference methods to account for differences across people with different patterns, it provides evidence that patterns of reasons could be used to screen individuals into prevention programs and/or tailor the content of programs. " [@Bray2018]
+
+
+
+
+Class membership: school risk & utilization profile (e.g., high need, high use; high need, low use)
+Outcome: 
+
+
+
+what predicts uptake?
+what predicts asthma?
+does uptake predict asthma, after adjusting for predictors of uptake?
+
+
+
+
+# Student Performance
+
+What predicts utilization? Poisson (or similar) for inhaler uses, 
+with a student-time (in program) offset. 
+Adjust for school-level chars. 
+
+- [ ] tabulate uses per school per year
+- [ ] calculate student-program-time per school per year 
+      (time btw program implementation and end of school year)
+- [ ] calculate use rate per school per year
+- [ ] plot 
+    - [ ] scatter: rate over time by impl date
+- [ ] model uses (count with student-time offset) 
+      as predicted by school demographics,
+      school characteristics, calendar time (school year), time in program
+- [ ] consider LCA for racial composition? school chars?
+
+Categorize schools by rate of utilization (quartiles). Categorize 
+schools by outcome rates (quartiles). Tabulate, plot by year. 
+
+
+Describe trends in student outcomes (student group level) 
+over time (asthma, 504 plans, ieps, attendance).
+Allow for demog-by-outcome interaction terms.
+
+
+Latent class analysis/latent transition analysis. Categorize by low/high utilizers 
+and low/high need. 
+
+Describe trends in outcomes as predicted by time-in-program, utilization 
+(treat as time-varying exposure?). Causal analysis w 
+time-varying covariates (confounders): use IPTW for utilization?
+
+
+
+
+stratified by year:
+
+limit to schools with complete data on sex.
+
+for each outcome: pivot to long

@@ -1,0 +1,1739 @@
+
+
+You said:
+i'm planning statistical analysis of a crossover stepped wedge trial. the unit of observation is schools. different schools started the program in different school years. they also started at different points in the schoolyear so have different levels of exposure in the first year. i have pre-enrollment baseline data for all schools. the outcome of interest is change in a numeric variable (call it x_change). how to structure a marginal GEE model to capture the effects of calendar time/school year, (possibly fractional) time in the program, enrollment order, and baseline level of x? assume schools were randomized to 4 groups with staggered start times.
+
+Copilot said:
+For a stepped wedge crossover design with school-level observations and repeated annual measurements, a marginal GEE framework is a reasonable choice. The key issue is disentangling:
+
+Secular calendar time effects (school year trends).
+Intervention exposure effects (including partial first-year exposure).
+Randomization sequence effects (enrollment order/wave).
+Baseline imbalance in the outcome.
+Within-school correlation across repeated observations.
+Recommended Data Structure
+Structure data in long format, one record per school-year:
+
+school	year	sequence	treated	exposure	baseline_x	x_change
+1	0	1	0	0.0	50	0
+1	1	1	1	0.4	50	2.1
+1	2	1	1	1.0	50	4.3
+1	3	1	1	1.0	50	5.5
+2	0	4	0	0.0	42	0
+2	1	4	0	0.0	42	0.8
+...	...	...	...	...	...	...
+where
+
+year = calendar school year (step).
+sequence = randomized enrollment group (1-4).
+treated = intervention status.
+exposure = proportion of year exposed (0, 0.25, 0.5, 0.75, 1.0, etc.).
+baseline_x = pre-enrollment value.
+Primary Marginal Model
+A typical model would be
+
+E
+(
+Y
+i
+t
+)
+=
+β
+0
++
+β
+1
+Year
+t
++
+β
+2
+Exposure
+i
+t
++
+β
+3
+BaselineX
+i
++
+β
+4
+Sequence
+i
+E(Y 
+it
+​
+ )=β 
+0
+​
+ +β 
+1
+​
+ Year 
+t
+​
+ +β 
+2
+​
+ Exposure 
+it
+​
+ +β 
+3
+​
+ BaselineX 
+i
+​
+ +β 
+4
+​
+ Sequence 
+i
+​
+ 
+where
+
+Y
+i
+t
+=
+x
+_
+c
+h
+a
+n
+g
+e
+i
+t
+Y 
+it
+​
+ =x_change 
+it
+​
+ 
+and GEE uses school as the clustering unit.
+
+In software notation:
+
+
+
+
+R
+gee(
+  x_change ~ factor(year)
+           + exposure
+           + baseline_x
+           + factor(sequence),
+  id = school,
+  corstr = "exchangeable"
+)
+Interpretation
+factor(year) controls secular trends common to all schools.
+exposure estimates intervention effect per year-equivalent of exposure.
+baseline_x increases precision and adjusts for pre-existing differences.
+sequence estimates residual differences associated with randomized start order.
+Calendar Time
+For stepped wedge trials, controlling calendar time flexibly is usually critical.
+
+Instead of
+
+
+
+
+R
++ year
+prefer
+
+
+
+
+R
++ factor(year)
+unless there are many years and a linear trend is strongly justified.
+
+This allows each school year to have its own mean.
+
+∑
+k
+=
+1
+K
+−
+1
+γ
+k
+I
+(
+y
+e
+a
+r
+=
+k
+)
+k=1
+∑
+K−1
+​
+ γ 
+k
+​
+ I(year=k)
+Modeling Partial Exposure
+The fractional exposure variable is likely the most important feature of this design.
+
+Examples:
+
+School Year	Months Exposed	Exposure
+Not enrolled	0	0.00
+Started in March	4/10	0.40
+Started in January	6/10	0.60
+Full exposure year	10/10	1.00
+Then
+
+β
+2
+β 
+2
+​
+ 
+represents expected change in outcome associated with one additional full school-year of exposure.
+
+This is generally preferable to a simple treated/not-treated indicator because schools entering midyear receive substantially different doses.
+
+Duration Since Enrollment
+A potentially better parameterization separates:
+
+Immediate treatment effect
+Exposure
+i
+t
+Exposure 
+it
+​
+ 
+from
+
+Cumulative treatment duration
+YearsSinceStart
+i
+t
+YearsSinceStart 
+it
+​
+ 
+For example:
+
+School	Year	Exposure	Years Since Start
+Before start	0	0	0
+First intervention year	1	0.4	0
+Second year	2	1.0	1
+Third year	3	1.0	2
+Model:
+
+E
+(
+Y
+i
+t
+)
+=
+β
+0
++
+γ
+t
++
+β
+1
+E
+x
+p
+o
+s
+u
+r
+e
+i
+t
++
+β
+2
+Y
+e
+a
+r
+s
+S
+i
+n
+c
+e
+S
+t
+a
+r
+t
+i
+t
++
+β
+3
+B
+a
+s
+e
+l
+i
+n
+e
+X
+i
++
+β
+4
+S
+e
+q
+u
+e
+n
+c
+e
+i
+E(Y 
+it
+​
+ )=β 
+0
+​
+ +γ 
+t
+​
+ +β 
+1
+​
+ Exposure 
+it
+​
+ +β 
+2
+​
+ YearsSinceStart 
+it
+​
+ +β 
+3
+​
+ BaselineX 
+i
+​
+ +β 
+4
+​
+ Sequence 
+i
+​
+ 
+This distinguishes:
+
+first-year partial exposure effects,
+cumulative program maturation effects.
+Many implementation programs exhibit both.
+
+Should Sequence Be Included?
+Because sequence was randomized, the intervention effect is theoretically estimable without sequence adjustment.
+
+However, including sequence often serves two purposes:
+
+
+
+
+R
++ factor(sequence)
+adjusts for chance baseline differences among enrollment waves;
+helps guard against confounding if earlier and later waves differed in practice.
+With only 4 randomized groups, sequence can be treated as a categorical fixed effect.
+
+Baseline Adjustment
+If x_change is computed relative to baseline:
+
+x
+_
+c
+h
+a
+n
+g
+e
+=
+x
+t
+−
+x
+b
+a
+s
+e
+l
+i
+n
+e
+x_change=x 
+t
+​
+ −x 
+baseline
+​
+ 
+it is generally still advisable to include baseline level:
+
++
+β
+×
+b
+a
+s
+e
+l
+i
+n
+e
+x
++β×baseline 
+x
+​
+ 
+because of regression-to-the-mean effects.
+
+A common model becomes:
+
+
+
+
+R
+x_change ~ factor(year)
+         + exposure
+         + baseline_x
+         + factor(sequence)
+Correlation Structure
+For school-level longitudinal data:
+
+Exchangeable
+
+
+
+R
+corstr = "exchangeable"
+Often the safest choice.
+
+Assumes
+
+C
+o
+r
+r
+(
+Y
+i
+t
+,
+Y
+i
+s
+)
+=
+ρ
+Corr(Y 
+it
+​
+ ,Y 
+is
+​
+ )=ρ
+for all years within a school.
+
+AR(1)
+
+
+
+R
+corstr = "ar1"
+can be considered if measurements closer in time are expected to be more correlated.
+
+With relatively few periods, estimates are often similar; robust sandwich standard errors remain the primary inference basis.
+
+Model Most Likely to Be Defensible
+A primary analysis specification could be:
+
+E
+(
+Y
+i
+t
+)
+=
+β
+0
++
+∑
+k
+γ
+k
+I
+(
+Y
+e
+a
+r
+t
+=
+k
+)
++
+β
+1
+E
+x
+p
+o
+s
+u
+r
+e
+i
+t
++
+β
+2
+B
+a
+s
+e
+l
+i
+n
+e
+X
+i
++
+∑
+j
+δ
+j
+I
+(
+S
+e
+q
+u
+e
+n
+c
+e
+i
+=
+j
+)
+E(Y 
+it
+​
+ )=β 
+0
+​
+ + 
+k
+∑
+​
+ γ 
+k
+​
+ I(Year 
+t
+​
+ =k)+β 
+1
+​
+ Exposure 
+it
+​
+ +β 
+2
+​
+ BaselineX 
+i
+​
+ + 
+j
+∑
+​
+ δ 
+j
+​
+ I(Sequence 
+i
+​
+ =j)
+with
+
+Gaussian family,
+identity link,
+school-level clustering,
+robust sandwich standard errors,
+exchangeable correlation.
+A useful sensitivity analysis would replace Exposure with:
+
+E
+x
+p
+o
+s
+u
+r
+e
+i
+t
++
+Y
+e
+a
+r
+s
+S
+i
+n
+c
+e
+S
+t
+a
+r
+t
+i
+t
+Exposure 
+it
+​
+ +YearsSinceStart 
+it
+​
+ 
+to determine whether effects are driven by immediate exposure dose versus accumulated program duration.
+
+For most stepped wedge analyses, flexible adjustment for calendar year plus a continuous fractional-exposure variable is likely to address the primary design complexities of staggered starts and varying first-year exposure.
+
+
+
+
+
+You said:
+ok, reformulate the statistical model and the sample r code to include both fractional exposure and total years of exposure
+Copilot said:
+A useful formulation is to separate:
+
+Fractional exposure during the current school year ("dose received this year").
+Cumulative years since implementation ("program maturity" or accumulated exposure).
+This allows the model to distinguish between the immediate effect of receiving intervention time in a given year and the longer-term effect of sustained implementation.
+
+Variables
+Let
+
+Y
+i
+t
+=
+x
+_
+c
+h
+a
+n
+g
+e
+i
+t
+Y 
+it
+​
+ =x_change 
+it
+​
+ 
+for school 
+i
+i in school year 
+t
+t.
+
+Define:
+
+Calendar year indicators
+Y
+e
+a
+r
+t
+Year 
+t
+​
+ 
+as a factor variable for school year.
+
+Fractional exposure
+F
+i
+t
+F 
+it
+​
+ 
+Examples:
+
+Status during year	
+F
+i
+t
+F 
+it
+​
+ 
+Not yet enrolled	0
+Started halfway through year	0.5
+Started 3 months before end of year	0.3
+Full intervention year	1.0
+Cumulative years of exposure
+C
+i
+t
+C 
+it
+​
+ 
+defined as total intervention years accrued before or through the observation period.
+
+Example:
+
+School year relative to start	
+C
+i
+t
+C 
+it
+​
+ 
+Before start	0
+First year, 40% exposure	0.4
+Second year	1.4
+Third year	2.4
+Fourth year	3.4
+A continuous cumulative measure is often preferred because it incorporates the partial first year naturally.
+
+Baseline outcome
+B
+i
+B 
+i
+​
+ 
+(pre-enrollment value of 
+x
+x)
+
+Randomization sequence
+S
+i
+S 
+i
+​
+ 
+(one of the four staggered enrollment groups)
+
+Marginal GEE Model
+E
+(
+Y
+i
+t
+)
+=
+β
+0
++
+∑
+k
+=
+1
+K
+−
+1
+γ
+k
+I
+(
+Y
+e
+a
+r
+t
+=
+k
+)
++
+β
+1
+F
+i
+t
++
+β
+2
+C
+i
+t
++
+β
+3
+B
+i
++
+∑
+j
+=
+1
+3
+δ
+j
+I
+(
+S
+i
+=
+j
+)
+E(Y 
+it
+​
+ )=β 
+0
+​
+ + 
+k=1
+∑
+K−1
+​
+ γ 
+k
+​
+ I(Year 
+t
+​
+ =k)+β 
+1
+​
+ F 
+it
+​
+ +β 
+2
+​
+ C 
+it
+​
+ +β 
+3
+​
+ B 
+i
+​
+ + 
+j=1
+∑
+3
+​
+ δ 
+j
+​
+ I(S 
+i
+​
+ =j)
+with
+
+Y
+i
+t
+∼
+N
+(
+μ
+i
+t
+,
+σ
+2
+)
+Y 
+it
+​
+ ∼N(μ 
+it
+​
+ ,σ 
+2
+ )
+and correlation modeled within schools.
+
+Interpretation
+β
+1
+β 
+1
+​
+ : Fractional exposure effect
+Holding cumulative experience fixed,
+
+β
+1
+β 
+1
+​
+ 
+represents the expected additional change associated with one more full year's worth of exposure during the current year.
+
+For example:
+
+0.5 vs 1.0 years exposure this year differs by 
+0.5
+β
+1
+0.5β 
+1
+​
+ .
+β
+2
+β 
+2
+​
+ : Cumulative exposure effect
+Represents the expected change associated with each additional accumulated year of program implementation.
+
+This captures learning, institutionalization, and maturation of the intervention.
+
+γ
+k
+γ 
+k
+​
+ : Calendar time effects
+Controls secular trends common to all schools.
+
+δ
+j
+δ 
+j
+​
+ : Sequence effects
+Controls residual differences among the four randomized enrollment waves.
+
+Recommended Data Construction
+For a school beginning halfway through Year 2:
+
+school	year	frac_exp	cum_exp
+Y1	0	0.0	
+Y2	0.5	0.5	
+Y3	1.0	1.5	
+Y4	1.0	2.5	
+Y5	1.0	3.5	
+where
+
+
+
+
+R
+cum_exp = cumulative sum of frac_exp
+within each school.
+
+R Code (geepack)
+
+
+
+R
+library(dplyr)
+library(geepack)
+ 
+dat <- dat %>%
+  arrange(school, year) %>%
+  group_by(school) %>%
+  mutate(
+    cum_exp = cumsum(frac_exp)
+  ) %>%
+  ungroup()
+ 
+fit <- geeglm(
+  x_change ~
+    factor(year) +
+    frac_exp +
+    cum_exp +
+    baseline_x +
+    factor(sequence),
+  id = school,
+  family = gaussian,
+  corstr = "exchangeable",
+  data = dat
+)
+ 
+summary(fit)
+
+Show more lines
+Potential Collinearity Issue
+Because cumulative exposure is built from fractional exposure,
+
+C
+i
+t
+=
+∑
+s
+≤
+t
+F
+i
+s
+C 
+it
+​
+ = 
+s≤t
+∑
+​
+ F 
+is
+​
+ 
+the two predictors can be moderately correlated.
+
+A common alternative is:
+
+E
+(
+Y
+i
+t
+)
+=
+β
+0
++
+γ
+t
++
+β
+1
+F
+i
+t
++
+β
+2
+Y
+e
+a
+r
+s
+S
+i
+n
+c
+e
+S
+t
+a
+r
+t
+i
+t
++
+β
+3
+B
+i
++
+δ
+S
+i
+E(Y 
+it
+​
+ )=β 
+0
+​
+ +γ 
+t
+​
+ +β 
+1
+​
+ F 
+it
+​
+ +β 
+2
+​
+ YearsSinceStart 
+it
+​
+ +β 
+3
+​
+ B 
+i
+​
+ +δS 
+i
+​
+ 
+where
+
+status	years_since_start
+pre-intervention	0
+first intervention year	0
+second year after start	1
+third year after start	2
+This often yields more stable estimation while retaining the interpretation:
+
+frac_exp = current-year dose effect.
+years_since_start = accumulation/maturation effect.
+For many stepped wedge applications, that parameterization is likely to be more statistically stable than including both frac_exp and cumulative exposure directly.
+
+
+
+
+
+You said:
+are any interactions appropriate
+Copilot said:
+Yes. In a stepped wedge setting, several interactions are scientifically plausible. The key question is whether the intervention effect is expected to vary by calendar time, implementation maturity, or baseline school characteristics.
+
+1. Fractional Exposure × Years Since Start
+This is often the most substantively interesting interaction.
+
+Model
+E
+(
+Y
+i
+t
+)
+=
+⋯
++
+β
+1
+F
+i
+t
++
+β
+2
+D
+i
+t
++
+β
+3
+(
+F
+i
+t
+×
+D
+i
+t
+)
+E(Y 
+it
+​
+ )=⋯+β 
+1
+​
+ F 
+it
+​
+ +β 
+2
+​
+ D 
+it
+​
+ +β 
+3
+​
+ (F 
+it
+​
+ ×D 
+it
+​
+ )
+where:
+
+F
+i
+t
+F 
+it
+​
+  = fractional exposure during the current year
+D
+i
+t
+D 
+it
+​
+  = years since implementation
+Interpretation
+The effect of receiving an additional unit of exposure during the current year becomes
+
+∂
+E
+(
+Y
+i
+t
+)
+∂
+F
+i
+t
+=
+β
+1
++
+β
+3
+D
+i
+t
+∂F 
+it
+​
+ 
+∂E(Y 
+it
+​
+ )
+​
+ =β 
+1
+​
+ +β 
+3
+​
+ D 
+it
+​
+ 
+This addresses:
+
+Does a year of exposure have a larger effect once schools become experienced implementers?
+
+This is often realistic because intervention delivery quality improves over time.
+
+A positive interaction implies the same amount of exposure is more effective in later implementation years.
+
+2. Exposure × Calendar Year
+Model
+F
+i
+t
+×
+Y
+e
+a
+r
+t
+F 
+it
+​
+ ×Year 
+t
+​
+ 
+Interpretation
+Tests whether intervention effectiveness changes across historical calendar periods.
+
+Possible reasons:
+
+policy changes
+post-pandemic recovery
+staff turnover
+changes in measurement systems
+However, this interaction can become difficult to estimate because intervention rollout is already closely tied to calendar time.
+
+In stepped wedge analyses, this interaction is generally more exploratory than primary.
+
+3. Exposure × Baseline Level
+Often highly informative.
+
+Model
+F
+i
+t
+×
+B
+a
+s
+e
+l
+i
+n
+e
+X
+i
+F 
+it
+​
+ ×BaselineX 
+i
+​
+ 
+Interpretation
+Tests whether schools with different starting levels benefit differently.
+
+For example:
+
+∂
+E
+(
+Y
+)
+∂
+F
+=
+β
+1
++
+β
+2
+B
+a
+s
+e
+l
+i
+n
+e
+X
+∂F
+∂E(Y)
+​
+ =β 
+1
+​
+ +β 
+2
+​
+ BaselineX
+Potential findings:
+
+schools with lower baseline values improve more;
+schools with higher baseline values improve more;
+evidence of ceiling/floor effects.
+This interaction is frequently more scientifically interpretable than sequence interactions.
+
+4. Years Since Start × Baseline Level
+Tests whether implementation maturation differs by initial school status.
+
+D
+i
+t
+×
+B
+a
+s
+e
+l
+i
+n
+e
+X
+i
+D 
+it
+​
+ ×BaselineX 
+i
+​
+ 
+For example:
+
+high-performing schools may continue improving with sustained implementation;
+low-performing schools may plateau.
+A reasonable secondary analysis.
+
+5. Sequence × Exposure
+Model
+F
+i
+t
+×
+S
+e
+q
+u
+e
+n
+c
+e
+i
+F 
+it
+​
+ ×Sequence 
+i
+​
+ 
+Tests whether intervention effects differ across randomization waves.
+
+Generally not attractive as a primary model because:
+
+only four sequences;
+limited power;
+difficult interpretation.
+Could be useful if implementation procedures changed for later cohorts.
+
+6. Sequence × Calendar Time
+Usually not recommended.
+
+In a stepped wedge design,
+
+sequence,
+treatment status,
+timing,
+are already highly related.
+
+Adding these interactions can consume substantial degrees of freedom and create identifiability concerns.
+
+7. Nonlinear Exposure Effects
+This is often more important than interactions.
+
+The assumption
+
+E
+(
+Y
+)
+=
+β
+F
+E(Y)=βF
+implies that moving from 0.1 to 0.2 years exposure has the same impact as moving from 0.8 to 0.9.
+
+Instead consider:
+
+F
++
+F
+2
+F+F 
+2
+ 
+or restricted cubic splines.
+
+Example:
+
+
+
+
+R
+x_change ~ factor(year) +
+           frac_exp +
+           I(frac_exp^2) +
+           years_since_start +
+           baseline_x +
+           factor(sequence)
+This can capture threshold or saturation effects.
+
+Primary Model Recommendation
+A defensible primary model would be:
+
+
+
+
+R
+x_change ~
+  factor(year) +
+  frac_exp +
+  years_since_start +
+  baseline_x +
+  factor(sequence)
+with school-level GEE clustering.
+
+Most Important Interaction to Pre-Specify
+If only one interaction were added, the strongest choice is usually:
+
+
+
+
+R
+frac_exp * years_since_start
+giving
+
+
+
+
+R
+x_change ~
+  factor(year) +
+  frac_exp * years_since_start +
+  baseline_x +
+  factor(sequence)
+because it directly addresses whether intervention dose has increasing or decreasing effectiveness as schools gain implementation experience.
+
+For most stepped wedge implementation studies, that interaction is more scientifically meaningful and more likely to reveal important effect heterogeneity than interactions involving randomization sequence.
+
+
+
+
+
+You said:
+provide references for relevant methods papers OR research literature that uses this approach/similar
+Copilot said:
+The proposed model is well aligned with a growing methodological literature that recognizes that, in stepped wedge trials, intervention effects may depend on time since implementation rather than being constant immediately after crossover.
+
+Core Stepped Wedge Methods References
+Hussey & Hughes (2007)
+This is the foundational modern stepped wedge paper.
+
+Hussey MA, Hughes JP. Design and analysis of stepped wedge cluster randomized trials. Contemporary Clinical Trials. 2007;28:182-191.
+washington
++1
+
+Key contribution:
+
+Introduced the standard stepped wedge regression framework
+Explicitly models calendar period effects
+Estimates intervention effects after adjusting for secular trends
+Forms the basis for many subsequent GEE and mixed-model analyses
+For your setting, the essential idea is the same:
+
+Y
+i
+t
+=
+α
++
+γ
+t
++
+δ
+I
+n
+t
+e
+r
+v
+e
+n
+t
+i
+o
+n
+i
+t
+Y 
+it
+​
+ =α+γ 
+t
+​
+ +δIntervention 
+it
+​
+ 
+but replacing the simple intervention indicator with fractional exposure and exposure-duration terms.
+
+Hemming et al. (2015)
+Hemming K, Haines TP, Chilton PJ, Girling AJ, Lilford RJ. The stepped wedge cluster randomised trial: rationale, design, analysis, and reporting. BMJ. 2015;350:h391.
+bmj
++1
+
+Important because it emphasizes that:
+
+treatment effects are inherently confounded with calendar time unless time is modeled appropriately;
+all analyses should adjust for period effects;
+treatment effects may evolve after rollout rather than appear instantaneously.
+bmj
++1
+This paper is often cited as the primary reporting and analytic reference for SW-CRTs.
+
+Literature Specifically on Exposure-Time Effects
+This is the literature most directly relevant to including both:
+
+fractional exposure,
+years since implementation,
+exposure-duration interactions.
+Kenny et al. (2022)
+Kenny A, Voldal E, Xia F, Heagerty PJ, Hughes JP. Analysis of stepped wedge cluster randomized trials in the presence of a time-varying treatment effect. Statistics in Medicine. 2022.
+nih
+
+This paper addresses exactly the concern motivating the proposed model.
+
+Main result:
+
+Standard stepped wedge analyses assume intervention effects appear immediately and remain constant.
+If effects actually vary according to time since treatment initiation, the conventional treatment coefficient can be misleading.
+The authors recommend explicitly modeling an "effect curve" as a function of exposure time.
+nih
+Conceptually, your
+
+
+
+
+R
+frac_exp
+years_since_start
+frac_exp * years_since_start
+specification is a simple implementation of the framework advocated in this paper.
+
+Maleyeff et al. (2022/2023)
+Maleyeff L, Li F, Haneuse S, Wang R. Assessing exposure-time treatment effect heterogeneity in stepped-wedge cluster randomized trials. Biometrics. 2023.
+nih
+
+This may be the most relevant methodological paper for your question.
+
+The paper focuses specifically on:
+
+whether treatment effects depend on exposure time since implementation.
+nih
+
+The authors compare approaches that:
+
+model exposure time categorically,
+model exposure time parametrically,
+allow treatment effects to vary over exposure duration.
+nih
+Your "years since start" term is essentially a parsimonious exposure-time heterogeneity model.
+
+References Supporting Marginal (GEE) Analysis
+If the intent is a population-averaged interpretation rather than a school-specific mixed-model interpretation:
+
+Scott et al. (2017)
+Scott JM, deCamp A, Juraska M, Fay MP, Gilbert PB. Finite-Sample Corrected GEE of Population Average Treatment Effects in Stepped Wedge Cluster Randomized Trials. Statistical Methods in Medical Research. 2017.
+nih
++1
+
+Key points:
+
+Directly develops GEE approaches for stepped wedge trials.
+Argues for population-averaged treatment effects.
+Discusses small-sample corrections when the number of clusters is modest.
+nih
++1
+This is especially relevant if the number of schools is not large.
+
+Turner et al. (2026)
+Turner EL, Preisser JS, Zhang Y, et al. Analysis of Stepped-Wedge Cluster Randomized Trials: A Tutorial Using Marginal Models. Statistics in Medicine. 2026.
+nih
++1
+
+Comprehensive review of:
+
+GEE approaches,
+correlation structures,
+population-average interpretations,
+multi-period stepped wedge analyses.
+nih
++1
+This would be the current go-to reference for defending a GEE analysis plan.
+
+Closest Published Formulation to the Proposed Model
+Among existing methods papers, the model
+
+E
+(
+Y
+i
+t
+)
+=
+β
+0
++
+γ
+t
++
+β
+1
+(
+fractional exposure
+)
++
+β
+2
+(
+years since start
+)
++
+β
+3
+(
+fractional exposure
+×
+years since start
+)
+E(Y 
+it
+​
+ )=β 
+0
+​
+ +γ 
+t
+​
+ +β 
+1
+​
+ (fractional exposure)+β 
+2
+​
+ (years since start)+β 
+3
+​
+ (fractional exposure×years since start)
+is most closely motivated by the exposure-time heterogeneity frameworks proposed by:
+
+Kenny et al. (2022)
+nih
+Maleyeff et al. (2023)
+nih
+rather than the original constant-effect stepped wedge model of Hussey & Hughes.
+washington
++1
+
+For a grant, SAP, or manuscript, a particularly defensible rationale would be:
+
+"Intervention effects were hypothesized to depend both on the amount of intervention exposure received during a school year and on cumulative implementation experience. Consistent with recent stepped-wedge methodology addressing exposure-time treatment effect heterogeneity, models included measures of current-year exposure and time since intervention initiation while adjusting for secular period effects."
+nih
++2
+
+
+
+
+
+
+Favicon typeFavicon typeFavicon type
+Sources
+
+
+
+Message Copilot
+
+
+AI-generated content may be incorrect

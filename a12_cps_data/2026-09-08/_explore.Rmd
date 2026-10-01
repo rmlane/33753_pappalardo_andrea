@@ -1,0 +1,46 @@
+
+```{r}
+read_rds(nested_here("output", "iptw_mod_cond_year1.rds")) |> 
+  summary()
+
+```
+
+```{r}
+nested_here("output", "iptw_mod_cond_year1.rds") |> 
+  read_rds() |> 
+  emmeans::emmeans(
+    pairwise ~ asthma_pct,
+    weight = "cells", 
+    offset = log(1000*176),
+    type = "response",
+    at = list(asthma_pct = c(.03, .05, .07))
+    )
+  
+```
+```{r}
+nested_here("output", "iptw_mod_cond_year1.rds") |> 
+  read_rds() |> 
+  emmeans::emmeans(
+    pairwise ~ rpl_ser_imp,
+    weight = "cells", 
+    offset = log(1000*176),
+    type = "response",
+    at = list(rpl_ser_imp = c(0, .25, .5, .75, 1))
+    )
+  
+```
+
+
+
+Marginal effects
+
+```{r}
+emmeans::emmeans(
+  attd_mod_best,
+  trt.vs.ctrl ~ event_rate,
+  at = list(event_rate = c(0:5, 10, 20)),
+  offset = log(176),
+  type = "response"
+)
+  
+```

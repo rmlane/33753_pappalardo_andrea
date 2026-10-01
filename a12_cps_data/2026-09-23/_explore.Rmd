@@ -1,0 +1,141 @@
+```{r}
+df_xtabs <- df_raw |> 
+  janitor::clean_names() |> 
+  
+  mutate(
+    # categorical variables
+    school_match_name = standardize_school_names(student_current_school),
+    data_schoolyear   = enrollment_year,
+    # short_name        = str_trim(gsub("0 Pilot", "", student_current_school)),
+    student_race      = fct_collapse(
+      snakecase::to_title_case(student_race, parsing_option = 0),
+      "Asian, Hawaiian, or Pacific Islander" = c(
+        "Asian",
+        "Asian or Pacific Islander",
+        "Hawaiian or Pacific Islander"
+      ),
+      "Missing" = "N/a"
+    ),
+    student_gender = fct_recode(
+      student_gender,
+      Missing = "@ERR"
+      ),
+  
+    asthma_status = fct_recode(
+      asthma_status,
+      "Asthma Dx"    = "Yes",
+      "No Asthma Dx" = "No"
+      ),
+    
+    # count variables
+    student_count = asthma_count,
+    asthma_count  = student_count*(asthma_status == "Asthma Dx"),
+    
+    male_count = student_count*(student_gender == "Male"),
+    female_count = student_count*(student_gender == "Female"),
+  
+    # attendance variables
+    days_per_student_expected = 176,
+    days_per_row_expected = days_per_student_expected*student_count,
+    days_per_row_present  = (average_attendance/100)*days_per_row_expected,
+    days_per_row_absent   = (1 - (average_attendance/100))*days_per_row_expected,
+  
+  .keep   = "unused"
+  ) |> 
+  
+  select(-any_of(c("district_name"))) |> 
+  mutate(across(where(is.character), ~ factor(.x))) |> 
+  relocate(where(negate(is.numeric)), .before = 1)
+```
+
+```{r}
+
+```
+
+
+```{r}
+df_xtabs |> 
+  summary()
+
+df_raw |> 
+  janitor::clean_names() |> 
+  count(student_race) |> 
+  arrange(desc(n))
+df_xtabs |> 
+```
+
+
+```{r}
+df_schools |> 
+  summary()
+
+quantile(df_schools$male_female_ratio, c(0, 0.33,0.66, 1))
+```
+
+```{r}
+df_schools |> 
+  mutate(
+    gender_cat = cut(male_female_ratio, breaks = c(0, 0.5, 2, Inf),
+                     include.lowest = TRUE)
+  ) |> 
+  select(data_schoolyear, gender_cat) |> 
+  table()
+quantile(df_schools$male_female_ratio, c(0.025, 0.975))
+
+quantile(df_schools$male_pct)
+
+quantile(df_schools$male_pct[which(df_schools$male_pct < 40)])
+```
+
+
+
+
+
+
+
+
+```{r}
+read_rds(nested_here("output", "iptw_mod_cond_year1.rds")) |> 
+  summary()
+
+```
+
+```{r}
+nested_here("output", "iptw_mod_cond_year1.rds") |> 
+  read_rds() |> 
+  emmeans::emmeans(
+    pairwise ~ asthma_pct,
+    weight = "cells", 
+    offset = log(1000*176),
+    type = "response",
+    at = list(asthma_pct = c(.03, .05, .07))
+    )
+  
+```
+```{r}
+nested_here("output", "iptw_mod_cond_year1.rds") |> 
+  read_rds() |> 
+  emmeans::emmeans(
+    pairwise ~ rpl_ser_imp,
+    weight = "cells", 
+    offset = log(1000*176),
+    type = "response",
+    at = list(rpl_ser_imp = c(0, .25, .5, .75, 1))
+    )
+  
+```
+
+
+
+Marginal effects
+
+```{r}
+emmeans::emmeans(
+  attd_mod_best,
+  trt.vs.ctrl ~ event_rate,
+  at = list(event_rate = c(0:5, 10, 20)),
+  offset = log(176),
+  type = "response"
+)
+  
+```
