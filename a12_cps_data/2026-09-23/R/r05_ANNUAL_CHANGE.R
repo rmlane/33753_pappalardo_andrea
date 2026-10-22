@@ -1,58 +1,76 @@
 # Develop poisson models for count/rate variables to estimate yoy change.
+schools_distinct <- schools |> 
+  distinct_unique_by(c("school_id", "data_schoolyear")) |> 
+  mutate(across(matches("days_per_row"), round))
+
+schools_distinct <- full_join(
+  schools_distinct |> 
+    filter(data_schoolyear == "2021-2022") |> 
+    select(school_id, matches("count.school"), matches("days_per_row")),
+  
+  schools_distinct,
+  
+  by     = c("school_id"),
+  suffix = c(".baseline", "")
+)
+
 
 count_mods <- c(
-  'asthma_count', 
-  'food_allergy_count', 
-  'non_food_allergy_count', 
-  'student_504_count', 
-  'iep_count', 
-  'esl_count', 
-  'frm_count', 
-  'homelessness_count'
-) |>
+  'asthma_count.school', 
+  'food_allergy_count.school', 
+  'non_food_allergy_count.school', 
+  'student_504_count.school', 
+  'iep_count.school', 
+  'esl_count.school', 
+  'frm_count.school', 
+  'homelessness_count.school'
+  ) |>
   set_names() |> 
   map(~{
     geepack::geeglm(
-      arsenal::formulize(.x, "data_schoolyear + offset(log(student_count))"),
+      arsenal::formulize(
+        .x, 
+        glue::glue("data_schoolyear + offset(log(student_count.school))")
+        ),
       family = poisson(link = "log"),
-      data   = schools,
+      data   = schools_distinct,
       id     = school_id,
       waves  = data_schoolyear,
       corstr = "exchangeable"
-    ) 
+    )
   })
 
 schooldays_mod <- geepack::geeglm(
-  days_per_row_present ~ data_schoolyear + offset(log(days_per_row_expected)),
+  days_per_row_present.school ~ data_schoolyear + offset(log(days_per_row_expected.school)),
   family = poisson(link = "log"),
-  data   = schools |> mutate(days_per_row_present = round(days_per_row_present)),
+  data   = schools_distinct,
   id     = school_id,
   waves  = data_schoolyear,
   corstr = "exchangeable"
 ) 
 
 
-# Reported inhaler uses per student-days of program enrollment
-util_mod_df <- schools |> 
-  select(
-    school_id, data_schoolyear,
-    student_count, impl_days, n_events
-  ) |> 
-  mutate(impl_student_days = impl_days*student_count, .after = 2) |> 
-  filter(impl_days > 0) |> 
-  arrange(data_schoolyear, school_id) |> 
-  mutate(across(all_of(c("data_schoolyear", "school_id")), fct_inorder))
+# # Reported inhaler uses per student-days of program enrollment
+# util_mod_df <- schools |> 
+#   select(
+#     school_id, data_schoolyear,
+#     student_count, impl_days, n_events
+#   ) |> 
+#   mutate(impl_student_days = impl_days*student_count, .after = 2) |> 
+#   filter(impl_days > 0) |> 
+#   arrange(data_schoolyear, school_id) |> 
+#   mutate(across(all_of(c("data_schoolyear", "school_id")), fct_inorder))
+# 
+# util_mod <- geepack::geeglm(
+#   n_events ~ data_schoolyear + offset(log(impl_student_days)),
+#   family = poisson(link = "log"),
+#   data   = util_mod_df,
+#   id     = school_id,
+#   waves  = data_schoolyear,
+#   corstr = "exchangeable"
+# )
 
-util_mod <- geepack::geeglm(
-  n_events ~ data_schoolyear + offset(log(impl_student_days)),
-  family = poisson(link = "log"),
-  data   = util_mod_df,
-  id     = school_id,
-  waves  = data_schoolyear,
-  corstr = "exchangeable"
-)
-
-yoy_change <- map(count_mods, ~{
+(yoy_change <- map(count_mods, ~{
   emmeans::emmeans(
     .x, 
     consec ~ data_schoolyear, 
@@ -61,7 +79,7 @@ yoy_change <- map(count_mods, ~{
     infer  = TRUE
   ) |> 
     c(list(offset = "per 1000 students"))
-})
+}))
 
 yoy_change$attendance <- emmeans::emmeans(
   schooldays_mod, 
@@ -69,17 +87,17 @@ yoy_change$attendance <- emmeans::emmeans(
   offset = log(176), # per schoolyear per student
   type   = "response",
   infer  = TRUE
-) |> 
+  ) |> 
   c(list(offset = "per student per schoolyear (176 days expected)"))
 
-yoy_change$n_events <- emmeans::emmeans(
-  util_mod, 
-  consec ~ data_schoolyear, 
-  offset = log(176*1000), # events per 1000 students per schoolyear
-  type   = "response",
-  infer  = TRUE
-) |> 
-  c(list(offset = "per 1000 students per schoolyear of program enrollment (176 days)"))
+# yoy_change$n_events <- emmeans::emmeans(
+#   util_mod, 
+#   consec ~ data_schoolyear, 
+#   offset = log(176*1000), # events per 1000 students per schoolyear
+#   type   = "response",
+#   infer  = TRUE
+# ) |> 
+#   c(list(offset = "per 1000 students per schoolyear of program enrollment (176 days)"))
 
 
 

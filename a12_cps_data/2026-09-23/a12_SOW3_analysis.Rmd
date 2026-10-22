@@ -69,6 +69,29 @@ nested_here <- function(
     ) {
     here::here(parent_dir, version, ...)
 }
+
+
+find_unique_by <- function(df, by_vars) {
+  df2 <- df |> 
+    mutate(
+      across(
+        everything(), 
+        ~ sum(!duplicated(unlist(.x)))
+        ), 
+      .by = all_of(c(by_vars))
+      )
+  
+  
+  names(df2)[which(unlist(map(df2, ~ all(.x == 1))))]
+}
+distinct_unique_by <- function(df, by_vars) {
+  df |> 
+    select(all_of(c(
+      by_vars,
+      find_unique_by(df, by_vars)
+      ))) |> 
+    distinct()
+  }
 ```
 
 ```{r}
@@ -80,7 +103,7 @@ walk(nested_here(c("R", "data", "output", "output/tables")), ~{
 
 ```{r}
 # define custom functions
-nested_here("R", c("box_fx.R")) |> 
+nested_here("R", c("box_fx.R")) |>
   walk(source)
 ```
 
@@ -119,7 +142,7 @@ default::default(box_write_if_diff) <- list(
 # source(nested_here("R", "r01e_PREPROC_UTILIZATION.R"))
 # 
 # # combine data sources into analytic dataset
-source(nested_here("R", "r02_MERGE_DATA_SOURCES.R"))
+# source(nested_here("R", "r02_MERGE_DATA_SOURCES.R"))
 ```
 
 
@@ -127,15 +150,29 @@ source(nested_here("R", "r02_MERGE_DATA_SOURCES.R"))
 # Describe School Chars by Year
 
 ```{r}
-schools <- read_rds(nested_here("data/cps_schools_analytic.rds")) 
+schools <- read_rds(nested_here("data/cps_schools_analytic.rds"))
 ```
+
+
+```{r}
+# source(nested_here("R", "r04a_DESCRIBE_SCHOOLS.R"))
+read_rds(nested_here("output", "describe_schools.rds")) |> 
+  openxlsx::write.xlsx(nested_here("output", "describe_schools.xlsx"))
+```
+
+```{r}
+# source(nested_here("R", "r05_ANNUAL_CHANGE.R"))
+read_rds(nested_here("output", "annual_change.rds")) |> 
+  openxlsx::write.xlsx(nested_here("output", "annual_change.xlsx"))
+```
+
+
 
 
 ```{r, include = FALSE}
 # library(arsenal)
-source(nested_here("R", "r04a_DESCRIBE_SCHOOLS.R"))
-source(nested_here("R", "r04b_DESCRIBE_WAVES.R"))
-source(nested_here("R", "r05_ANNUAL_CHANGE.R"))
+# source(nested_here("R", "r04a_DESCRIBE_SCHOOLS.R"))
+# source(nested_here("R", "r04b_DESCRIBE_WAVES.R"))
 # source(nested_here("R", "r10_IPTW_NB.R"))
 ```
 

@@ -1,6 +1,45 @@
 # crossover; treat group as random
 
 
+library(dplyr)
+library(geepack)
+
+dat <- dat %>%
+  arrange(school, year) %>%
+  group_by(school) %>%
+  mutate(
+    cum_exp = cumsum(frac_exp)
+  ) %>%
+  ungroup()
+
+fit <- geeglm(
+  x_change ~
+    factor(year) +
+    frac_exp +
+    cum_exp +
+    baseline_x +
+    factor(sequence),
+  id = school,
+  family = gaussian,
+  corstr = "exchangeable",
+  data = dat
+)
+
+summary(fit)
+
+
+
+x_change ~
+  factor(year) +
+  frac_exp * years_since_start +
+  baseline_x +
+  factor(sequence)
+
+
+
+
+
+
 
 
 schools |> 

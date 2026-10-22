@@ -1,9 +1,10 @@
+library(arsenal)
 tableby(
   data_schoolyear ~ 
     notest(n_schools, cat.stats = "count", cat.simplify = TRUE) 
   + grade_level 
   + region_name 
-  + student_count 
+  + student_count.school 
   
   + re_majority 
   + student_pct.race.american_indian
@@ -14,7 +15,7 @@ tableby(
   + student_pct.race.white_non_hispanic
   + student_pct.race.middle_eastern_or_north_african
   + student_pct.race.missing
-  
+
   + student_pct.gender.female
   + student_pct.gender.male
   + student_pct.gender.non_binary
@@ -36,13 +37,15 @@ tableby(
   
   + days_per_student_present
   + days_per_student_absent
-  + pct_days_per_row_present
+  + pct_days_per_school_present
   
-  + days_per_student_present.asthma.asthma_dx
-  + days_per_student_absent.asthma.asthma_dx
-  + pct_days_per_row_present.asthma.asthma_dx
+  # + days_per_student_present.asthma.asthma_dx
+  # + days_per_student_absent.asthma.asthma_dx
+  # + pct_days_per_row_present.asthma.asthma_dx
   ,
-  data    = schools |> mutate(across(matches("pct"), ~ .x*100)),
+  data    = read_rds(nested_here("data/cps_schools_analytic.rds")) |> 
+    distinct_unique_by(c("school_id", "data_schoolyear")) |>
+    mutate(across(matches("pct"), ~ .x*100)),
   control = tableby.control(
     test           = FALSE,
     total          = FALSE,

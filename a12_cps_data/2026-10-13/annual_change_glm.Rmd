@@ -1,0 +1,169 @@
+---
+title: "annual change glm mods"
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+params:
+  parent_dir: "a12_cps_data" # relative to project root
+  version: "2026-10-13"
+output: word_document
+---
+
+
+```{r}
+library(tidyverse)
+library(lme4)
+library(emmeans)
+```
+
+```{r}
+# function for easier navigation of relative refs
+nested_here <- function(
+    ...,    
+    parent_dir = params$parent_dir, 
+    version    = params$version
+) {
+  here::here(parent_dir, version, ...)
+}
+```
+
+```{r, eval = FALSE}
+count_df <- read_rds(nested_here("data/cps_schools_analytic.rds")) |> 
+          arrange(data_schoolyear) |> 
+          mutate(year_seq = as.numeric(fct_inorder(data_schoolyear)))
+
+write_rds(count_df, nested_here("output", "models", "glm_count_df.rds"))
+
+count_mods <- c(
+  "asthma_count",
+  "food_allergy_count",
+  "non_food_allergy_count",
+  "student_504_count",
+  "iep_count",
+  "esl_count",
+  "frm_count",
+  "homelessness_count"
+  ) |>
+  set_names() |> 
+  map(~{
+    eval(bquote(
+    
+      glmer(
+        arsenal::formulize(.x, "data_schoolyear + (1 | school_id)"),
+        offset = log(student_count),
+        family = poisson(link = "log"),
+        data   = count_df
+        )
+    ))
+  })
+
+write_rds(count_mods, nested_here("output", "models", "glm_count_mods.rds"))
+
+asthma_attd_df <- read_csv(nested_here("data", "cps_student_crosstabs.csv")) |> 
+  left_join(read_csv(nested_here("data", "cps_name_id_crosswalk.csv"))) |> 
+  mutate(
+    days_observed = round(days_per_row_present),
+    days_expected = round(days_per_row_expected)
+  ) |> 
+  
+  summarise(
+    across(
+      c(student_count, days_observed, days_expected), 
+      ~ sum(.x, na.rm = TRUE)
+      ),
+    .by = c("school_id", "data_schoolyear", "asthma_status")
+    ) |> 
+  filter(days_expected > 0) |> 
+  arrange(data_schoolyear) |> 
+  mutate(year_seq = as.numeric(fct_inorder(data_schoolyear)))
+
+write_rds(asthma_attd_df, nested_here("output", "models", "glm_asthma_attd_df.rds"))
+
+attd_mod <- glmer(
+  days_observed ~ data_schoolyear + (year_seq | school_id),
+  data   = asthma_attd_df,
+  family = poisson(link = "log"),
+  offset = log(days_expected)
+)
+
+write_rds(attd_mod, nested_here("output", "models", "glm_attd_mod.rds"))
+
+asthma_attd_mod <- glmer(
+  days_observed ~ data_schoolyear*asthma_status + (year_seq | school_id),
+  data   = asthma_attd_df,
+  family = poisson(link = "log"),
+  offset = log(days_expected)
+)
+
+write_rds(asthma_attd_mod, nested_here("output", "models", "glm_asthma_attd_mod.rds"))
+
+```
+
+
+```{r}
+count_df        <- read_rds(nested_here("output", "models", "glm_count_df.rds"))
+count_mods      <- read_rds(nested_here("output", "models", "glm_count_mods.rds"))
+asthma_attd_df  <- read_rds(nested_here("output", "models", "glm_asthma_attd_df.rds"))
+attd_mod        <- read_rds(nested_here("output", "models", "glm_attd_mod.rds"))
+asthma_attd_mod <- read_rds(nested_here("output", "models", "glm_asthma_attd_mod.rds"))
+```
+
+```{r}
+map(count_mods, ~{
+  
+emmeans(
+  .x,
+  revpairwise ~ data_schoolyear,
+  offset  = log(1000),
+  type    = "response",
+  weights = "cells"
+  )
+})
+```
+
+
+```{r}
+emmeans(
+  attd_mod, 
+  revpairwise ~ data_schoolyear,
+  offset = log(176),
+  type = "response",
+  weights = "cells"
+  )
+```
+
+```{r}
+emmeans(
+  asthma_attd_mod, 
+  revpairwise ~ asthma_status | data_schoolyear,
+  offset = log(176),
+  type = "response",
+  weights = "cells"
+  )
+```
+
+```{r}
+emmeans(
+  asthma_attd_mod, 
+  revpairwise ~ data_schoolyear | asthma_status,
+  offset = log(176),
+  type = "response",
+  weights = "cells"
+  )
+```
+
+```{r}
+emmeans(
+  asthma_attd_mod, 
+  ~ data_schoolyear | asthma_status,
+  offset = log(176),
+  type = "response",
+  weights = "cells"
+  ) |>
+  contrast("revpairwise") |> 
+  rbind() |>
+  update(by = "contrast") |> 
+  contrast("revpairwise") |> 
+  rbind()
+```
+
+

@@ -1,0 +1,356 @@
+---
+title: "crossover glm mods"
+author: "Rachel Lane"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+params:
+  parent_dir: "a12_cps_data" # relative to project root
+  version: "2026-10-13"
+output: word_document
+---
+
+
+```{r}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+```
+
+```{r}
+# # function for easier navigation of relative refs
+# nested_here <- function(
+#     ...,    
+#     parent_dir = params$parent_dir, 
+#     version    = params$version
+# ) {
+#   here::here(parent_dir, version, ...)
+# }
+```
+
+```{r}
+schools <- read_rds(nested_here("data", "cps_schools_analytic.rds"))
+
+schools |> 
+  summarise(
+    across(c(matches("count"), ~ sum(.x) / sum(student_count))),
+    .by = c("school_id", "data_schoolyear")
+    ) |> 
+  arrange(school_id, data_schoolyear) |> 
+  slice(1, .by = school_id) |> 
+  mutate(across(matches("count"), list(z = ~ scale(.x))), .keep = "unused")
+```
+
+
+```{r}
+|> 
+  mutate(across(matches("pct"), list(z = ~ scale(.x)))) |> 
+  mutate(across(matches("attd_baseline"), list(z = ~ scale(.x))))
+```
+
+
+```{r}
+
+
+
+ 
+```
+
+
+```{r}
+}) |> 
+  
+  # and combine by id
+  reduce(
+    full_join,
+    by = c("school_id", "data_schoolyear")
+  ) |> 
+  
+  # calculate cumulative events reported
+  arrange(school_id, data_schoolyear) |> 
+  mutate(
+    n_events       = coalesce(n_events, 0),
+    any_events     = as.numeric(n_events > 0),
+    
+    n_events_cum   = cumsum(n_events),
+    any_events_cum = as.numeric(n_events_cum > 0),
+    .by            = school_id
+  ) |> 
+  
+  # calculate time-related variables
+  left_join(
+    read_csv(nested_here("data", "cps_schoolyear_dates.csv")),
+    by = c("data_schoolyear")
+  ) |> 
+  mutate(
+    demog_date = sy_day20,
+    data_date  = sy_end
+  ) |> 
+  select(-any_of(c("sy_start", "sy_end", "next_sy_start", "sy_day20"))) |> 
+  write_if_diff(nested_here("data", "mrg_cps_annual.rds")) |> 
+  write_if_diff(nested_here("data", "mrg_cps_annual.csv"))
+
+```
+
+
+```{r}
+fuzzyjoin::fuzzy_join(
+    read_csv(nested_here("data", "cps_utilization_events.csv")),
+    by = list(
+      x = c("event_date", "event_date"),
+      y = c("sy_start", "next_sy_start")
+      ), match_fun = list(`>=`, `<`)
+    ) #|>
+  summarise(
+    n_events = n(), .by = c(school_match_name, data_schoolyear)
+    ) 
+  
+  
+  full_join(
+  read_csv(nested_here("data", "cps_utilization_counts.csv")),
+  by = c("school_match_name", "data_schoolyear")
+  ) |> 
+  
+  arrange(school_id, data_schoolyear) |>
+  mutate(
+    n_events       = coalesce(n_events, 0),
+    any_events     = as.numeric(n_events > 0),
+    n_events_cum   = cumsum(n_events),
+    any_events_cum = as.numeric(n_events_cum > 0),
+    .by            = school_id
+  )
+
+```
+
+
+```{r}
+list(
+  "cps_student_crosstabs.csv",
+  "cps_utilization_counts.csv"
+) |> 
+  map(~{
+    left_join(
+      read_csv(nested_here("data", .x)),
+      read_csv(nested_here("data", "cps_name_id_crosswalk.csv")),
+      by = "school_match_name"
+    ) |> 
+      select(-school_match_name)
+  }) |> 
+  
+  # and combine by id
+  reduce(
+    full_join,
+    by = c("school_id", "data_schoolyear")
+  ) |> 
+  
+  # calculate cumulative events reported
+  arrange(school_id, data_schoolyear) |> 
+  mutate(
+    n_events       = coalesce(n_events, 0),
+    any_events     = as.numeric(n_events > 0),
+    
+    n_events_cum   = cumsum(n_events),
+    any_events_cum = as.numeric(n_events_cum > 0),
+    .by            = school_id
+  ) |> 
+  
+  # calculate time-related variables
+  left_join(
+    read_csv(nested_here("data", "cps_schoolyear_dates.csv")),
+    by = c("data_schoolyear")
+  ) |> 
+  mutate(
+    demog_date = sy_day20,
+    data_date  = sy_end
+  ) |> 
+  select(-any_of(c("sy_start", "sy_end", "next_sy_start", "sy_day20")))
+```
+
+```{r, eval = FALSE}
+schools <- read_rds(nested_here("data/cps_schools_analytic.rds")) 
+
+names(schools)
+```
+
+```{r}
+
+m_primary <- glmer(
+
+ cbind(attended_days,
+       expected_days - attended_days) ~
+
+   factor(year) +
+   fractional_exposure +
+   years_since_start +
+
+   baseline_att_z +
+   poverty_z +
+   enrollment_z +
+   school_level +
+
+   (1 + time | school),
+
+ family = binomial,
+ data = dat
+)
+```
+
+
+
+```{r}
+Semmy - look at methods in word doc
+```
+
+
+
+
+
+```{r, eval = FALSE}
+summary(mx <- glmer(
+  days_per_school_present ~
+    data_schoolyear 
+    + poly(impl_frac, 2) 
+    + factor(total_impl_years)
+    + wave
+    + (1 | school_id),
+  offset = log(days_per_school_expected),
+  family = poisson(link = "log"),
+  data   = schools
+  ))
+```
+
+
+```{r, eval = FALSE}
+library(lmerTest)
+```
+
+```{r}
+emmeans::emmeans(
+  mx, 
+  ~ data_schoolyear 
+    + impl_frac
+    + total_impl_years
+    + wave,
+  offset = log(176),
+  at = list(impl_frac = c(0.2, 0.5, 1)),
+  data = schools
+  )
+```
+
+
+```{r, eval = FALSE}
+summary(mx)
+
+    ))
+  })
+
+write_rds(count_mods, nested_here("output", "models", "glm_count_mods.rds"))
+
+asthma_attd_df <- read_csv(nested_here("data", "cps_student_crosstabs.csv")) |> 
+  left_join(read_csv(nested_here("data", "cps_name_id_crosswalk.csv"))) |> 
+  mutate(
+    days_observed = round(days_per_row_present),
+    days_expected = round(days_per_row_expected)
+  ) |> 
+  
+  summarise(
+    across(
+      c(student_count, days_observed, days_expected), 
+      ~ sum(.x, na.rm = TRUE)
+      ),
+    .by = c("school_id", "data_schoolyear", "asthma_status")
+    ) |> 
+  filter(days_expected > 0) |> 
+  arrange(data_schoolyear) |> 
+  mutate(year_seq = as.numeric(fct_inorder(data_schoolyear)))
+
+write_rds(asthma_attd_df, nested_here("output", "models", "glm_asthma_attd_df.rds"))
+
+attd_mod <- glmer(
+  days_observed ~ data_schoolyear + (year_seq | school_id),
+  data   = asthma_attd_df,
+  family = poisson(link = "log"),
+  offset = log(days_expected)
+)
+
+write_rds(attd_mod, nested_here("output", "models", "glm_attd_mod.rds"))
+
+asthma_attd_mod <- glmer(
+  days_observed ~ data_schoolyear*asthma_status + (year_seq | school_id),
+  data   = asthma_attd_df,
+  family = poisson(link = "log"),
+  offset = log(days_expected)
+)
+
+write_rds(asthma_attd_mod, nested_here("output", "models", "glm_asthma_attd_mod.rds"))
+
+```
+
+
+```{r}
+count_df        <- read_rds(nested_here("output", "models", "glm_count_df.rds"))
+count_mods      <- read_rds(nested_here("output", "models", "glm_count_mods.rds"))
+asthma_attd_df  <- read_rds(nested_here("output", "models", "glm_asthma_attd_df.rds"))
+attd_mod        <- read_rds(nested_here("output", "models", "glm_attd_mod.rds"))
+asthma_attd_mod <- read_rds(nested_here("output", "models", "glm_asthma_attd_mod.rds"))
+```
+
+```{r}
+map(count_mods, ~{
+  
+emmeans(
+  .x,
+  revpairwise ~ data_schoolyear,
+  offset  = log(1000),
+  type    = "response",
+  weights = "cells"
+  )
+})
+```
+
+
+```{r}
+emmeans(
+  attd_mod, 
+  revpairwise ~ data_schoolyear,
+  offset = log(176),
+  type = "response",
+  weights = "cells"
+  )
+```
+
+```{r}
+emmeans(
+  asthma_attd_mod, 
+  revpairwise ~ asthma_status | data_schoolyear,
+  offset = log(176),
+  type = "response",
+  weights = "cells"
+  )
+```
+
+```{r}
+emmeans(
+  asthma_attd_mod, 
+  revpairwise ~ data_schoolyear | asthma_status,
+  offset = log(176),
+  type = "response",
+  weights = "cells"
+  )
+```
+
+```{r}
+emmeans(
+  asthma_attd_mod, 
+  ~ data_schoolyear | asthma_status,
+  offset = log(176),
+  type = "response",
+  weights = "cells"
+  ) |>
+  contrast("revpairwise") |> 
+  rbind() |>
+  update(by = "contrast") |> 
+  contrast("revpairwise") |> 
+  rbind()
+```
+
+

@@ -104,6 +104,59 @@ cps_annual <- full_join(
   cps_data$school_utilization_counts |> rename(n_events = n),
   by = c("school_match_name", "data_schoolyear")
   ) |> 
+  full_join(
+    cps_data$school_level_counts,
+    by     = c("school_match_name", "data_schoolyear"),
+    suffix = c("", ".school")
+    ) |> 
+  
+  full_join(
+    cps_data$student_crosstabs |> 
+        summarise(
+          n   = sum(student_count, na.rm = TRUE),
+          .by = c(data_schoolyear, school_match_name, student_race)
+        ) |> 
+        
+        mutate(
+          value        = n / sum(n, na.rm = TRUE), 
+          student_race = snakecase::to_snake_case(student_race),
+          .by          = c(data_schoolyear, school_match_name),
+          .keep        = "unused"
+        ) |> 
+        
+        pivot_wider(
+          names_from   = student_race,
+          names_prefix = "student_pct.race.",
+          id_cols      = c(data_schoolyear, school_match_name),
+          values_from  = value,
+          values_fill  = 0
+        ),
+      by     = c("school_match_name", "data_schoolyear")
+    ) |> 
+  full_join(
+    cps_data$student_crosstabs |> 
+      summarise(
+        n   = sum(student_count, na.rm = TRUE),
+        .by = c(data_schoolyear, school_match_name, student_gender)
+      ) |> 
+      
+      mutate(
+        value        = n / sum(n, na.rm = TRUE), 
+        student_gender = snakecase::to_snake_case(student_gender),
+        .by          = c(data_schoolyear, school_match_name),
+        .keep        = "unused"
+      ) |> 
+      
+      pivot_wider(
+        names_from   = student_gender,
+        names_prefix = "student_pct.gender.",
+        id_cols      = c(data_schoolyear, school_match_name),
+        values_from  = value,
+        values_fill  = 0
+      ),
+    by     = c("school_match_name", "data_schoolyear")
+  ) |> 
+  
   left_join(
     cps_data$schoolyear_dates,
     by = "data_schoolyear"
@@ -148,6 +201,12 @@ cps_df_all <- full_join(
     impl_years  = cumsum(impl_binary) - 1,
     .by         = school_id,
     .before     = student_count
+  ) |> 
+  
+  mutate(
+    days_per_student_present = days_per_row_present.school / student_count.school,
+    days_per_student_absent = days_per_row_absent.school / student_count.school,
+    pct_days_per_school_present = days_per_row_present.school / days_per_row_expected.school
   )
 
 # limit to relevant
